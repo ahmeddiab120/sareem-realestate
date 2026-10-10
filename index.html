@@ -2409,23 +2409,45 @@ function jumpToCompare(matId){
 /* =========================================================
    BACKUP / RESTORE
 ========================================================= */
-function exportBackup(){
-  const payload = {
-    _meta: { app:'Material Cost Database', exported_at:new Date().toISOString(), version:1 },
-    materials: DB.materials, suppliers: DB.suppliers, prices: DB.prices,
-    projects: DB.projects, project_quantities: DB.project_quantities,
-    purchase_orders: DB.purchase_orders, active_project_id: ACTIVE_PROJECT_ID
-  };
-  const blob = new Blob([JSON.stringify(payload,null,2)], {type:'application/json;charset=utf-8;'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `نسخة_احتياطية_قاعدة_التكاليف_${todayStr()}.json`;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  toast('تم تنزيل النسخة الاحتياطية');
+async function exportBackup(){
+  try{
+    const [materials, suppliers, prices, projects, project_quantities, purchase_orders] = await Promise.all([
+      supabaseFetch('materials?select=*'),
+      supabaseFetch('suppliers?select=*'),
+      supabaseFetch('prices?select=*'),
+      supabaseFetch('projects?select=*'),
+      supabaseFetch('project_quantities?select=*'),
+      supabaseFetch('purchase_orders?select=*')
+    ]);
+    // Strip project_id from quantities for portability
+    const quantitiesGrouped = {};
+    for (const row of project_quantities) {
+      const pid = row.project_id;
+      if (!quantitiesGrouped[pid]) quantitiesGrouped[pid] = [];
+      const { project_id, ...rest } = row;
+      quantitiesGrouped[pid].push(rest);
+    }
+    const payload = {
+      _meta: { app:'Material Cost Database', exported_at:new Date().toISOString(), version:2, backend:'supabase' },
+      materials, suppliers, prices, projects,
+      project_quantities: quantitiesGrouped,
+      purchase_orders,
+      active_project_id: ACTIVE_PROJECT_ID
+    };
+    const blob = new Blob([JSON.stringify(payload,null,2)], {type:'application/json;charset=utf-8;'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `نسخة_احتياطية_قاعدة_التكاليف_${todayStr()}.json`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast('تم تنزيل النسخة الاحتياطية');
+  }catch(err){
+    console.error(err);
+    toast('تعذر إنشاء النسخة الاحتياطية');
+  }
 }
-function triggerRestore(){
+async function triggerRestore(){
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = '.json,application/json';
@@ -2440,15 +2462,54 @@ function triggerRestore(){
       }
       const ok = await askConfirm(`سيتم استبدال كل البيانات الحالية ببيانات النسخة الاحتياطية (${data.materials.length} مادة، ${data.suppliers.length} مورد، ${(data.prices||[]).length} سعر). هل تريد المتابعة؟`);
       if(!ok) return;
-      DB.materials = data.materials||[];
-      DB.suppliers = data.suppliers||[];
-      DB.prices = data.prices||[];
-      DB.projects = data.projects||[];
-      DB.project_quantities = data.project_quantities||{};
-      DB.purchase_orders = data.purchase_orders||[];
-      ACTIVE_PROJECT_ID = data.active_project_id || (DB.projects[0]? DB.projects[0].id : null);
-      await persistAll();
+
+      // Upsert order matters due to FK constraints: materials → suppliers → projects → prices → quantities → POs
+      const upsertTable = async (table, rows) => {
+        if (!rows || rows.length === 0) return;
+        // Supabase upsert: POST with Prefer: resolution=merge-duplicates
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_KEY,
+            'Authorization': `Bearer ${SUPABASE_KEY}`,
+            'Content-Type': 'application/json',
+            'Prefer': 'resolution=merge-duplicates'
+          },
+          body: JSON.stringify(rows)
+        });
+        if (!res.ok) throw new Error(`Upsert ${table} failed: ${res.status} ${await res.text()}`);
+      };
+
+      // Convert project_quantities from grouped format to flat rows
+      let qtyRows = [];
+      if (data.project_quantities && typeof data.project_quantities === 'object' && !Array.isArray(data.project_quantities)) {
+        for (const [pid, items] of Object.entries(data.project_quantities)) {
+          for (const item of items) {
+            qtyRows.push({ ...item, project_id: pid });
+          }
+        }
+      } else if (Array.isArray(data.project_quantities)) {
+        qtyRows = data.project_quantities;
+      }
+
+      // Upsert in FK-safe order
+      await upsertTable('materials', data.materials.map(({id, created_at, updated_at, ...r}) => r));
+      await upsertTable('suppliers', data.suppliers.map(({id, created_at, updated_at, ...r}) => r));
+      await upsertTable('projects', data.projects.map(({id, created_at, updated_at, ...r}) => r));
+      await upsertTable('prices', data.prices.map(({id, created_at, ...r}) => r));
+      await upsertTable('project_quantities', qtyRows.map(({id, created_at, ...r}) => r));
+      await upsertTable('purchase_orders', data.purchase_orders.map(({id, created_at, updated_at, ...r}) => r));
+
+      // Reload local DB
+      DB.materials = data.materials || [];
+      DB.suppliers = data.suppliers || [];
+      DB.prices = data.prices || [];
+      DB.projects = data.projects || [];
+      DB.project_quantities = data.project_quantities || {};
+      DB.purchase_orders = data.purchase_orders || [];
+      ACTIVE_PROJECT_ID = data.active_project_id || (DB.projects[0] ? DB.projects[0].id : null);
       await saveKey('active_project_id', ACTIVE_PROJECT_ID);
+
       toast('تم استعادة النسخة الاحتياطية بنجاح');
       renderAll();
     }catch(err){
