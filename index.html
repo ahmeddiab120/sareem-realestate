@@ -1182,6 +1182,7 @@ function makeSearchable(sel, opts){
   }
 
   input.addEventListener('focus', openList);
+  input.addEventListener('click', ()=>{ if(!open) openList(); });
   input.addEventListener('input', ()=>{ if(!open) openList(); render(input.value); place(); });
   input.addEventListener('keydown', (e)=>{
     const k = e.key;
