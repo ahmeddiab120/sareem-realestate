@@ -585,16 +585,83 @@ body.printing-doc #printArea{display:block !important;padding:30px;max-width:800
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
+const SUPABASE_URL = 'https://jfsjegphqotlourvfpvo.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_hKDp9RnHbR8F1TtPkX5ZEA_v_2rrmal';
+
+const TABLE_MAP = {
+  'materials': 'materials',
+  'suppliers': 'suppliers',
+  'prices': 'prices',
+  'projects': 'projects',
+  'project_quantities': 'project_quantities',
+  'purchase_orders': 'purchase_orders'
+};
+
+async function supabaseFetch(path, options = {}) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...options,
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  });
+  if (!res.ok) throw new Error(`Supabase ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
 if (!window.storage) {
   window.storage = {
     async get(key) {
       try {
-        const v = localStorage.getItem("mcdb:" + key);
-        return v ? { value: v } : null;
+        if (key === 'active_project_id') {
+          const v = localStorage.getItem("mcdb:" + key);
+          return v ? { value: v } : null;
+        }
+        const table = TABLE_MAP[key];
+        if (!table) return null;
+        const data = await supabaseFetch(`${table}?select=*`);
+        if (key === 'project_quantities') {
+          const grouped = {};
+          for (const row of data) {
+            const pid = row.project_id;
+            if (!grouped[pid]) grouped[pid] = [];
+            const { project_id, ...rest } = row;
+            grouped[pid].push(rest);
+          }
+          return { value: JSON.stringify(grouped) };
+        }
+        return { value: JSON.stringify(data) };
       } catch (e) { return null; }
     },
     async set(key, val) {
-      localStorage.setItem("mcdb:" + key, val);
+      try {
+        if (key === 'active_project_id') {
+          localStorage.setItem("mcdb:" + key, val);
+          return;
+        }
+        const table = TABLE_MAP[key];
+        if (!table) return;
+        const data = JSON.parse(val);
+        if (key === 'project_quantities') {
+          const rows = [];
+          for (const [projId, items] of Object.entries(data)) {
+            for (const item of items) {
+              rows.push({ ...item, project_id: projId });
+            }
+          }
+          await supabaseFetch(`${table}?id=neq.00000000-0000-0000-0000-000000000000`, { method: 'DELETE' });
+          if (rows.length > 0) {
+            await supabaseFetch(table, { method: 'POST', body: JSON.stringify(rows) });
+          }
+        } else if (Array.isArray(data)) {
+          await supabaseFetch(`${table}?id=neq.00000000-0000-0000-0000-000000000000`, { method: 'DELETE' });
+          if (data.length > 0) {
+            await supabaseFetch(table, { method: 'POST', body: JSON.stringify(data) });
+          }
+        }
+      } catch (e) { throw e; }
     }
   };
 }
