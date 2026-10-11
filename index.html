@@ -3175,7 +3175,8 @@ async function renderUserChip(){
   const chip = document.getElementById('userChip');
   const { data: { user } } = await sb.auth.getUser();
   const email = (user && user.email) || '';
-  const name = (((user && user.user_metadata) || {}).first_name || '').trim();
+  const md = (user && user.user_metadata) || {};
+  const name = [md.first_name, md.last_name].map(s => String(s || '').trim()).filter(Boolean).join(' ');
   chip.textContent = name || email;
   chip.classList.toggle('is-name', !!name);
   chip.title = email;
