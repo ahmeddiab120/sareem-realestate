@@ -652,6 +652,10 @@ body.printing-doc #printArea{display:block !important;padding:30px;max-width:800
   background-repeat:no-repeat;
   background-position:right 10px center;
 }
+.titleblock .userchip.is-name{
+  font-family:'Cairo',sans-serif;font-weight:700;font-size:12.5px;
+  direction:rtl;text-align:right;
+}
 .titleblock .userchip:hover,
 .titleblock .userchip[aria-expanded="true"]{
   border-color: var(--amber);
@@ -1224,6 +1228,7 @@ async function saveProfile(){
     if (r1.error) throw r1.error;
     _pfMsg('تم الحفظ' + note, 'ok');
     toast('تم حفظ الملف الشخصي');
+    await renderUserChip();
   } catch (e) {
     console.error('saveProfile failed', e);
     _pfMsg(_pfErrText(e), 'err');
@@ -3161,12 +3166,19 @@ async function startApp(){
   if (appStarted) return;
   appStarted = true;
   document.getElementById('loginGate').hidden = true;
-  const { data: { session } } = await sb.auth.getSession();
-  const chip = document.getElementById('userChip');
-  chip.textContent = session?.user?.email || '';
-  chip.title = session?.user?.email || '';
+  await renderUserChip();
   document.getElementById('userMenu').hidden = false;
   await init();
+}
+
+async function renderUserChip(){
+  const chip = document.getElementById('userChip');
+  const { data: { user } } = await sb.auth.getUser();
+  const email = (user && user.email) || '';
+  const name = (((user && user.user_metadata) || {}).first_name || '').trim();
+  chip.textContent = name || email;
+  chip.classList.toggle('is-name', !!name);
+  chip.title = email;
 }
 
 async function doLogout(){
