@@ -757,7 +757,8 @@ async function supabaseFetch(path, options = {}) {
     }
   });
   if (!res.ok) throw new Error(`Supabase ${res.status}: ${await res.text()}`);
-  return res.json();
+  const body = await res.text();
+  return body ? JSON.parse(body) : null;
 }
 
 if (!window.storage) {
@@ -909,7 +910,7 @@ function toast(msg){
 
 async function saveKey(key,val){
   try{ await window.storage.set(key, JSON.stringify(val)); }
-  catch(e){ console.error('storage set failed',key,e); toast('تعذر الحفظ، حاول مرة أخرى'); }
+  catch(e){ console.error('storage set failed',key,e); toast('تعذر الحفظ، حاول مرة أخرى'); throw e; }
 }
 async function loadKey(key,fallback){
   try{
