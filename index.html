@@ -1867,7 +1867,7 @@ async function savePrice(){
   const mat = DB.materials.find(m=>m.id===material_id);
   DB.prices.push({
     id: uid('PR'), material_id, supplier_id, price, unit: mat?mat.unit:'',
-    price_date, expiry_date: document.getElementById('f_expiry_date').value,
+    price_date, expiry_date: document.getElementById('f_expiry_date').value || null,
     includes_vat: document.getElementById('f_vat').checked,
     includes_transport: document.getElementById('f_transport').checked,
     includes_unloading: document.getElementById('f_unloading').checked,
@@ -1939,7 +1939,7 @@ function openProjectForm(id){
       <div class="field"><label>مساحة البناء الإجمالية (م²)</label><input id="f_built_area" type="number" value="${p&&p.built_area!=null?p.built_area:''}"></div>
       <div class="field"><label>عدد الأدوار</label><input id="f_floors" type="number" value="${p&&p.floors!=null?p.floors:''}"></div>
       <div class="field"><label>عدد الوحدات</label><input id="f_units" type="number" value="${p&&p.units!=null?p.units:''}"></div>
-      <div class="field"><label>تاريخ دراسة التكلفة</label><input id="f_study_date" type="date" value="${p?p.study_date:todayStr()}"></div>
+      <div class="field"><label>تاريخ دراسة التكلفة</label><input id="f_study_date" type="date" value="${p&&p.study_date?p.study_date:todayStr()}"></div>
       <div class="field"><label>الحالة</label>
         <select id="f_status">${['نشط','مكتمل','متوقف'].map(s=>`<option ${p&&p.status===s?'selected':(!p&&s==='نشط'?'selected':'')}>${s}</option>`).join('')}</select>
       </div>
@@ -1972,7 +1972,7 @@ async function saveProject(id){
     built_area: numVal('f_built_area'),
     floors: numVal('f_floors'),
     units: numVal('f_units'),
-    study_date: document.getElementById('f_study_date').value,
+    study_date: document.getElementById('f_study_date').value || null,
     status: document.getElementById('f_status').value,
     notes: document.getElementById('f_notes').value.trim(),
     extra_costs: {
@@ -2377,7 +2377,7 @@ function openPOForm(id){
         <select id="f_supplier" onchange="poSupplierChanged()">${DB.suppliers.map(s=>`<option value="${s.id}" ${po&&po.supplier_id===s.id?'selected':''}>${s.name}</option>`).join('')}</select>
       </div>
       <div class="field"><label>تاريخ الأمر*</label><input id="f_order_date" type="date" value="${po?po.order_date:todayStr()}"></div>
-      <div class="field"><label>تاريخ التسليم المتوقع</label><input id="f_expected_delivery" type="date" value="${po?po.expected_delivery_date:''}"></div>
+      <div class="field"><label>تاريخ التسليم المتوقع</label><input id="f_expected_delivery" type="date" value="${po&&po.expected_delivery_date?po.expected_delivery_date:''}"></div>
       <div class="field"><label>الحالة</label>
         <select id="f_status">${PO_STATUSES.map(s=>`<option ${po&&po.status===s?'selected':(!po&&s===PO_STATUSES[0]?'selected':'')}>${s}</option>`).join('')}</select>
       </div>
@@ -2493,7 +2493,7 @@ async function savePO(){
     po_number: document.getElementById('f_po_number').value.trim() || nextPONumber(document.getElementById('f_order_date').value),
     project_id, supplier_id,
     order_date: document.getElementById('f_order_date').value || todayStr(),
-    expected_delivery_date: document.getElementById('f_expected_delivery').value,
+    expected_delivery_date: document.getElementById('f_expected_delivery').value || null,
     status: document.getElementById('f_status').value,
     notes: document.getElementById('f_notes').value.trim(),
     items: validItems,
