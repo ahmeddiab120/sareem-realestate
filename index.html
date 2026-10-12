@@ -910,7 +910,14 @@ function toast(msg){
 
 async function saveKey(key,val){
   try{ await window.storage.set(key, JSON.stringify(val)); }
-  catch(e){ console.error('storage set failed',key,e); toast('تعذر الحفظ، حاول مرة أخرى'); throw e; }
+  catch(e){
+    console.error('storage set failed',key,e);
+    let m = (e && e.message) || '';
+    const mi = /Supabase \d+: (.*)$/s.exec(m);
+    if (mi) { try { const j = JSON.parse(mi[1]); if (j && j.message) m = j.message; } catch (_) {} }
+    toast('تعذر الحفظ: ' + m.slice(0,140));
+    throw e;
+  }
 }
 async function loadKey(key,fallback){
   try{
@@ -1928,10 +1935,10 @@ function openProjectForm(id){
       <div class="field"><label>نوع المشروع</label><input id="f_type" value="${p?p.type:''}" placeholder="سكني استثماري / فيلا / تجاري..."></div>
       <div class="field"><label>خط العرض (Lat)</label><input id="f_lat" type="number" step="any" value="${p&&p.lat!=null?p.lat:''}" placeholder="24.7136"></div>
       <div class="field"><label>خط الطول (Lng)</label><input id="f_lng" type="number" step="any" value="${p&&p.lng!=null?p.lng:''}" placeholder="46.6753"></div>
-      <div class="field"><label>مساحة الأرض (م²)</label><input id="f_land_area" type="number" value="${p?p.land_area:''}"></div>
-      <div class="field"><label>مساحة البناء الإجمالية (م²)</label><input id="f_built_area" type="number" value="${p?p.built_area:''}"></div>
-      <div class="field"><label>عدد الأدوار</label><input id="f_floors" type="number" value="${p?p.floors:''}"></div>
-      <div class="field"><label>عدد الوحدات</label><input id="f_units" type="number" value="${p?p.units:''}"></div>
+      <div class="field"><label>مساحة الأرض (م²)</label><input id="f_land_area" type="number" value="${p&&p.land_area!=null?p.land_area:''}"></div>
+      <div class="field"><label>مساحة البناء الإجمالية (م²)</label><input id="f_built_area" type="number" value="${p&&p.built_area!=null?p.built_area:''}"></div>
+      <div class="field"><label>عدد الأدوار</label><input id="f_floors" type="number" value="${p&&p.floors!=null?p.floors:''}"></div>
+      <div class="field"><label>عدد الوحدات</label><input id="f_units" type="number" value="${p&&p.units!=null?p.units:''}"></div>
       <div class="field"><label>تاريخ دراسة التكلفة</label><input id="f_study_date" type="date" value="${p?p.study_date:todayStr()}"></div>
       <div class="field"><label>الحالة</label>
         <select id="f_status">${['نشط','مكتمل','متوقف'].map(s=>`<option ${p&&p.status===s?'selected':(!p&&s==='نشط'?'selected':'')}>${s}</option>`).join('')}</select>
@@ -1954,16 +1961,17 @@ async function saveProject(id){
   if(!name){ toast('اسم المشروع مطلوب'); return; }
   let code = document.getElementById('f_code').value.trim();
   if(!code) code = 'PRJ-' + uid('').slice(1,7).toUpperCase();
+  const numVal = (fid)=>{ const v = document.getElementById(fid).value.trim(); return v==='' ? null : Number(v); };
   const data = {
     code, name,
     location: document.getElementById('f_location').value.trim(),
-    lat: document.getElementById('f_lat').value==='' ? '' : Number(document.getElementById('f_lat').value),
-    lng: document.getElementById('f_lng').value==='' ? '' : Number(document.getElementById('f_lng').value),
+    lat: numVal('f_lat'),
+    lng: numVal('f_lng'),
     type: document.getElementById('f_type').value.trim(),
-    land_area: document.getElementById('f_land_area').value,
-    built_area: document.getElementById('f_built_area').value,
-    floors: document.getElementById('f_floors').value,
-    units: document.getElementById('f_units').value,
+    land_area: numVal('f_land_area'),
+    built_area: numVal('f_built_area'),
+    floors: numVal('f_floors'),
+    units: numVal('f_units'),
     study_date: document.getElementById('f_study_date').value,
     status: document.getElementById('f_status').value,
     notes: document.getElementById('f_notes').value.trim(),
