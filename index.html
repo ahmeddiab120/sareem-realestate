@@ -2804,26 +2804,9 @@ async function triggerRestore(){
       if(!data || !Array.isArray(data.materials) || !Array.isArray(data.suppliers)){
         toast('الملف غير صالح — تأكد أنه نسخة احتياطية من هذه الأداة'); return;
       }
-      const ok = await askConfirm(`سيتم استبدال كل البيانات الحالية ببيانات النسخة الاحتياطية (${data.materials.length} مادة، ${data.suppliers.length} مورد، ${(data.prices||[]).length} سعر). هل تريد المتابعة؟`);
-      if(!ok) return;
-
-      // Upsert order matters due to FK constraints: materials → suppliers → projects → prices → quantities → POs
-      const upsertTable = async (table, rows) => {
-        if (!rows || rows.length === 0) return;
-        // Supabase upsert: POST with Prefer: resolution=merge-duplicates
-        const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
-          method: 'POST',
-          headers: {
-            ...(await authHeaders()),
-            'Content-Type': 'application/json',
-            'Prefer': 'resolution=merge-duplicates'
-          },
-          body: JSON.stringify(rows)
-        });
-        if (!res.ok) throw new Error(`Upsert ${table} failed: ${res.status} ${await res.text()}`);
-      };
-
-      // Convert project_quantities from grouped format to flat rows
+      const prices = Array.isArray(data.prices) ? data.prices : [];
+      const projects = Array.isArray(data.projects) ? data.projects : [];
+      const orders = Array.isArray(data.purchase_orders) ? data.purchase_orders : [];
       let qtyRows = [];
       if (data.project_quantities && typeof data.project_quantities === 'object' && !Array.isArray(data.project_quantities)) {
         for (const [pid, items] of Object.entries(data.project_quantities)) {
@@ -2834,30 +2817,53 @@ async function triggerRestore(){
       } else if (Array.isArray(data.project_quantities)) {
         qtyRows = data.project_quantities;
       }
+      const ok = await askConfirm(`سيتم استبدال كل البيانات الحالية ببيانات النسخة الاحتياطية:<br>${data.materials.length} مادة، ${data.suppliers.length} مورد، ${prices.length} سعر، ${projects.length} مشروع، ${qtyRows.length} بند كميات، ${orders.length} أمر شراء.<br>هل تريد المتابعة؟`);
+      if(!ok) return;
 
-      // Upsert in FK-safe order
-      await upsertTable('materials', data.materials.map(({id, created_at, updated_at, ...r}) => r));
-      await upsertTable('suppliers', data.suppliers.map(({id, created_at, updated_at, ...r}) => r));
-      await upsertTable('projects', data.projects.map(({id, created_at, updated_at, ...r}) => r));
-      await upsertTable('prices', data.prices.map(({id, created_at, ...r}) => r));
-      await upsertTable('project_quantities', qtyRows.map(({id, created_at, ...r}) => r));
-      await upsertTable('purchase_orders', data.purchase_orders.map(({id, created_at, updated_at, ...r}) => r));
+      const wipeTable = async (table) => {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=neq.00000000-0000-0000-0000-000000000000`, {
+          method: 'DELETE',
+          headers: await authHeaders()
+        });
+        if (!res.ok) throw new Error(`wipe ${table} failed: ${res.status} ${await res.text()}`);
+      };
+      const insertTable = async (table, rows) => {
+        if (!rows || rows.length === 0) return;
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+          method: 'POST',
+          headers: {
+            ...(await authHeaders()),
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(rows)
+        });
+        if (!res.ok) throw new Error(`insert ${table} failed: ${res.status} ${await res.text()}`);
+      };
 
-      // Reload local DB
-      DB.materials = data.materials || [];
-      DB.suppliers = data.suppliers || [];
-      DB.prices = data.prices || [];
-      DB.projects = data.projects || [];
-      DB.project_quantities = data.project_quantities || {};
-      DB.purchase_orders = data.purchase_orders || [];
-      ACTIVE_PROJECT_ID = data.active_project_id || (DB.projects[0] ? DB.projects[0].id : null);
-      await saveKey('active_project_id', ACTIVE_PROJECT_ID);
+      // wipe children before parents and refill parents first; ids are kept so cross-table relations survive
+      await wipeTable('project_quantities');
+      await wipeTable('purchase_orders');
+      await wipeTable('prices');
+      await wipeTable('projects');
+      await wipeTable('suppliers');
+      await wipeTable('materials');
+      await insertTable('materials', data.materials);
+      await insertTable('suppliers', data.suppliers);
+      await insertTable('projects', projects);
+      await insertTable('prices', prices);
+      await insertTable('project_quantities', qtyRows);
+      await insertTable('purchase_orders', orders);
 
+      await loadAll();
+      if (data.active_project_id && DB.projects.some(p=>p.id===data.active_project_id)) {
+        ACTIVE_PROJECT_ID = data.active_project_id;
+        await saveKey('active_project_id', ACTIVE_PROJECT_ID);
+      }
       toast('تم استعادة النسخة الاحتياطية بنجاح');
       renderAll();
     }catch(err){
       console.error(err);
-      toast('تعذر قراءة الملف — تأكد أنه ملف JSON سليم');
+      toast('تعذرت الاستعادة — تأكد أن الملف نسخة احتياطية سليمة وحاول مجدداً');
     }
   };
   input.click();
