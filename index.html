@@ -794,22 +794,24 @@ if (!window.storage) {
         const table = TABLE_MAP[key];
         if (!table) return;
         const data = JSON.parse(val);
+        let rows;
         if (key === 'project_quantities') {
-          const rows = [];
+          rows = [];
           for (const [projId, items] of Object.entries(data)) {
             for (const item of items) {
               rows.push({ ...item, project_id: projId });
             }
           }
-          await supabaseFetch(`${table}?id=neq.00000000-0000-0000-0000-000000000000`, { method: 'DELETE' });
-          if (rows.length > 0) {
-            await supabaseFetch(table, { method: 'POST', body: JSON.stringify(rows) });
-          }
         } else if (Array.isArray(data)) {
+          rows = data;
+        } else return;
+        // upsert first, then delete only ids absent from the new set: a full wipe would
+        // violate foreign keys from child tables that still reference the surviving rows
+        if (rows.length > 0) {
+          await supabaseFetch(table, { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates' }, body: JSON.stringify(rows) });
+          await supabaseFetch(`${table}?id=not.in.(${rows.map(r => r.id).join(',')})`, { method: 'DELETE' });
+        } else {
           await supabaseFetch(`${table}?id=neq.00000000-0000-0000-0000-000000000000`, { method: 'DELETE' });
-          if (data.length > 0) {
-            await supabaseFetch(table, { method: 'POST', body: JSON.stringify(data) });
-          }
         }
       } catch (e) { throw e; }
     }
@@ -1656,10 +1658,11 @@ async function saveMaterial(id){
   closeModal(); toast('تم الحفظ'); renderMaterialsTable(); if(CURRENT_TAB==='dashboard') renderDashboard();
 }
 async function deleteMaterial(id){
-  if(!(await askConfirm('هل تريد حذف هذه المادة؟ سيتم حذف سجلات الأسعار المرتبطة بها أيضاً.'))) return;
+  if(!(await askConfirm('هل تريد حذف هذه المادة؟ سيتم حذف سجلات الأسعار والكميات المرتبطة بها أيضاً.'))) return;
   DB.materials = DB.materials.filter(x=>x.id!==id);
   DB.prices = DB.prices.filter(p=>p.material_id!==id);
-  await saveKey('materials', DB.materials); await saveKey('prices', DB.prices);
+  for (const pid of Object.keys(DB.project_quantities)) DB.project_quantities[pid] = DB.project_quantities[pid].filter(q=>q.material_id!==id);
+  await saveKey('prices', DB.prices); await saveKey('project_quantities', DB.project_quantities); await saveKey('materials', DB.materials);
   toast('تم الحذف'); renderMaterialsTable();
 }
 
@@ -1771,10 +1774,11 @@ async function saveSupplier(id){
   closeModal(); toast('تم الحفظ'); renderSuppliersTable();
 }
 async function deleteSupplier(id){
-  if(!(await askConfirm('هل تريد حذف هذا المورد؟ سيتم حذف سجلات أسعاره أيضاً.'))) return;
+  if(!(await askConfirm('هل تريد حذف هذا المورد؟ سيتم حذف سجلات أسعاره وأوامر الشراء المرتبطة به أيضاً.'))) return;
   DB.suppliers = DB.suppliers.filter(x=>x.id!==id);
   DB.prices = DB.prices.filter(p=>p.supplier_id!==id);
-  await saveKey('suppliers', DB.suppliers); await saveKey('prices', DB.prices);
+  DB.purchase_orders = DB.purchase_orders.filter(po=>po.supplier_id!==id);
+  await saveKey('prices', DB.prices); await saveKey('purchase_orders', DB.purchase_orders); await saveKey('suppliers', DB.suppliers);
   toast('تم الحذف'); renderSuppliersTable();
 }
 
@@ -1996,10 +2000,11 @@ async function saveProject(id){
   if(CURRENT_TAB==='dashboard') renderDashboard();
 }
 async function deleteProject(id){
-  if(!(await askConfirm('حذف هذا المشروع وكل كمياته المسجلة؟'))) return;
+  if(!(await askConfirm('حذف هذا المشروع وكل كمياته وأوامر الشراء المرتبطة به؟'))) return;
   DB.projects = DB.projects.filter(x=>x.id!==id);
   delete DB.project_quantities[id];
-  await saveKey('projects', DB.projects); await saveKey('project_quantities', DB.project_quantities);
+  DB.purchase_orders = DB.purchase_orders.filter(po=>po.project_id!==id);
+  await saveKey('project_quantities', DB.project_quantities); await saveKey('purchase_orders', DB.purchase_orders); await saveKey('projects', DB.projects);
   if(ACTIVE_PROJECT_ID===id){ ACTIVE_PROJECT_ID = DB.projects.length? DB.projects[0].id : null; await saveKey('active_project_id', ACTIVE_PROJECT_ID); }
   toast('تم الحذف'); renderProjectsTable(); renderProjectSelector();
 }
