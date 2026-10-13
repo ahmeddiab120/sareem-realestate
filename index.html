@@ -805,6 +805,24 @@ if (!window.storage) {
         } else if (Array.isArray(data)) {
           rows = data;
         } else return;
+        // PostgREST bulk POST requires identical keys on every object; rows loaded from
+        // the DB carry server columns (created_at…) that freshly built rows lack
+        rows = rows.map(r => {
+          const o = {};
+          for (const k of Object.keys(r)) {
+            if (k === 'created_at' || k === 'updated_at') continue;
+            const v = r[k];
+            o[k] = v === undefined ? null : v;
+          }
+          return o;
+        });
+        const keySet = [];
+        for (const r of rows) for (const k of Object.keys(r)) if (!keySet.includes(k)) keySet.push(k);
+        rows = rows.map(r => {
+          const o = {};
+          for (const k of keySet) o[k] = k in r ? r[k] : null;
+          return o;
+        });
         // upsert first, then delete only ids absent from the new set: a full wipe would
         // violate foreign keys from child tables that still reference the surviving rows
         if (rows.length > 0) {
