@@ -734,6 +734,7 @@ button, .tab-btn, .icon-btn, .userchip{touch-action:manipulation;-webkit-user-se
   #loginForm input, .po-mat-select, .po-qty-input, .po-price-input{font-size:16px;}
   .searchable.dark .searchable-input{font-size:16px;min-width:0;max-width:100%;}
   .toolbar .searchable-input, .po-items-table .searchable-input{font-size:16px;}
+  select, input, textarea{font-size:16px;}
 }
 @media (max-width:640px){
   .wrap{padding:14px 12px calc(48px + env(safe-area-inset-bottom,0px));}
@@ -757,6 +758,8 @@ button, .tab-btn, .icon-btn, .userchip{touch-action:manipulation;-webkit-user-se
   .modal-actions .btn{width:100%;}
   .po-totals, .po-doc-totals{max-width:100%;}
   .po-items-table{min-width:600px;}
+  .searchable-item{padding:12px;font-size:15px;}
+  .searchable-list{max-height:45vh;}
   .map-box{height:58vh;min-height:340px;}
   .toast{max-width:calc(100vw - 24px);font-size:12.5px;padding:11px 18px;}
   .bar-label{width:104px;font-size:11.5px;}
@@ -1401,10 +1404,13 @@ function makeSearchable(sel, opts){
     list.style.left = left + 'px';
     list.style.width = w + 'px';
     const lh = list.offsetHeight;
+    // on phones the soft keyboard shrinks the visual viewport; keep the list inside what's actually visible
+    const vv = window.visualViewport;
+    const visBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
     let top = r.bottom + 4;
-    if(top + lh > window.innerHeight - 8){
+    if(top + lh > visBottom - 8){
       const above = r.top - 4 - lh;
-      top = above >= 8 ? above : Math.max(8, window.innerHeight - 8 - lh);
+      top = above >= 8 ? above : Math.max(8, visBottom - 8 - lh);
     }
     list.style.top = top + 'px';
   }
