@@ -523,8 +523,19 @@ select#activeProjectSelect option{background:#33291F;color:#F3ECDD;text-align:ce
 }
 #usersTableWrap td select{height:36px;padding:4px 8px;font-size:13px;min-width:132px;}
 #usersTableWrap .checkfield{margin-top:0;justify-content:flex-start;}
+.perm-details summary{cursor:pointer;font-size:15px;font-weight:700;color:var(--brick-dark);list-style:none;display:flex;align-items:center;gap:8px;padding:4px 0;}
+.perm-details summary::-webkit-details-marker{display:none;}
+.perm-details summary::before{content:'◀';font-size:11px;transition:transform .15s;}
+.perm-details[open] summary::before{transform:rotate(-90deg);}
+#permMatrix{margin-top:12px;}
+#permMatrix th:not(:first-child), #permMatrix td:not(:first-child){text-align:center;white-space:nowrap;}
+#permMatrix td:first-child{min-width:240px;}
 @media (max-width:900px){
   #usersTableWrap td select{font-size:16px;min-width:0;}
+}
+@media (max-width:640px){
+  #permMatrix td:first-child{min-width:190px;}
+  #permMatrix th, #permMatrix td{padding:8px 6px;}
 }
 
 @media print{
@@ -1038,6 +1049,29 @@ const ROLE_TABS = {
   engineer: ['dashboard','materials','suppliers','prices','projects','map','costing','po','search','reports'],
   pending: ['dashboard'],
 };
+// what each role can do, shown to the admin on the users page
+const PERM_MATRIX = [
+  ['لوحة التحكم (نظرة عامة)','✔️','✔️','✔️','✔️'],
+  ['المواد / الموردين / الأسعار — مشاهدة','✔️','✔️','✔️','✔️'],
+  ['المواد / الموردين / الأسعار — إضافة وتعديل','✔️','❌','✔️','❌'],
+  ['حذف مادة أو مورد أو سجل سعر','✔️','❌','❌','❌'],
+  ['المشاريع — مشاهدة','✔️','كلها','كلها','مشروعه'],
+  ['المشاريع — إضافة وتعديل','✔️','❌','✔️','❌'],
+  ['حذف مشروع','✔️','❌','❌','❌'],
+  ['خريطة المشاريع','✔️','✔️','✔️','مشروعه'],
+  ['كميات وتكلفة المشروع — مشاهدة','✔️','✔️','✔️','مشروعه'],
+  ['كميات وتكلفة المشروع — إضافة وتعديل وحذف بنود','✔️','❌','✔️','❌'],
+  ['أوامر الشراء — مشاهدة','✔️','✔️','✔️','مشروعه'],
+  ['أوامر الشراء — إضافة وتعديل وحذف','✔️','❌','✔️','مشروعه'],
+  ['طباعة / تصدير أمر الشراء PDF','✔️','✔️','✔️','✔️'],
+  ['مقارنة الموردين','✔️','✔️','❌','❌'],
+  ['البحث الشامل','✔️','✔️','✔️','✔️'],
+  ['التقارير والطباعة وتصدير CSV','✔️','✔️','❌','مشروعه'],
+  ['نسخة احتياطية (تصدير كل البيانات)','✔️','❌','✔️','❌'],
+  ['استعادة نسخة احتياطية','✔️','❌','✔️','❌'],
+  ['إدارة المستخدمين والأدوار','✔️','❌','❌','❌'],
+  ['الملف الشخصي (الاسم والصورة)','✔️','✔️','✔️','✔️'],
+];
 function can(perm){
   if (CURRENT_ROLE === 'admin') return true;
   if (CURRENT_ROLE === 'data_entry') return ['edit_master','edit_projects','edit_quantities','edit_po','export','restore'].includes(perm);
@@ -3286,12 +3320,22 @@ function renderUsers(){
       <button class="btn" onclick="openUserForm()">+ إضافة مستخدم</button>
     </div>
     <div class="card">
-      <div class="small-muted" style="line-height:2;">
-        <b>أدمن:</b> كل الصلاحيات + إدارة المستخدمين + الحذف + الاستعادة.<br>
-        <b>مالك:</b> اطلاع على كل البيانات + التقارير (بدون تعديل أو نسخ احتياطي).<br>
-        <b>مدخل بيانات:</b> إدخال وتعديل المواد والموردين والأسعار والمشاريع والكميات وأوامر الشراء + نسخة احتياطية واستعادة (أزرار الحذف للأدمن فقط).<br>
-        <b>مهندس موقع:</b> يرى مشروعاً واحداً محدداً له فقط — الكميات والتكلفة للاطلاع، وأوامر الشراء ينشئها ويعدّلها.
-      </div>
+      <details class="perm-details" open>
+        <summary>صلاحيات كل دور بالتفصيل</summary>
+        <div class="table-scroll">
+          <table id="permMatrix">
+            <thead><tr><th>الصلاحية</th><th>أدمن</th><th>مالك</th><th>مدخل بيانات</th><th>مهندس موقع</th></tr></thead>
+            <tbody>
+              ${PERM_MATRIX.map(r=>`<tr><td>${r[0]}</td>${r.slice(1).map(c=>`<td class="pm-c">${c}</td>`).join('')}</tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div class="small-muted" style="margin-top:10px;line-height:1.9;">
+          • «مشروعه» = مهندس الموقع مربوط بمشروع واحد تحدده له من القائمة، ومش بيشوف أي مشروع غيره.<br>
+          • الحساب الجديد اللي لسه ما حددتوش دوره بيظهر بدور «في انتظار تحديد الدور» ومش بيشوف غير لوحة التحكم.<br>
+          • مدخل البيانات ما يقدرش يحذف أي صف من الموقع — صلاحية الحذف في الواجهة للأدمن فقط.
+        </div>
+      </details>
     </div>
     <div class="card"><div class="table-scroll" id="usersTableWrap"></div></div>
   `;
