@@ -1027,21 +1027,22 @@ async function loadAll(){
 /* =========================================================
    ROLES & PERMISSIONS
 ========================================================= */
-let CURRENT_ROLE = 'owner';
+let CURRENT_ROLE = 'pending';
 let CURRENT_USER_EMAIL = '';
 let ROLES_TABLE_MISSING = false;
-const ROLE_LABELS = {admin:'أدمن', owner:'مالك', engineer:'مهندس موقع', data_entry:'مدخل بيانات'};
+const ROLE_LABELS = {admin:'أدمن', owner:'مالك', engineer:'مهندس موقع', data_entry:'مدخل بيانات', pending:'في انتظار تحديد الدور'};
 const ROLE_TABS = {
   admin: ['dashboard','materials','suppliers','prices','projects','map','costing','po','compare','search','reports','users'],
   owner: ['dashboard','materials','suppliers','prices','projects','map','costing','po','compare','search','reports'],
   data_entry: ['dashboard','materials','suppliers','prices','projects','map','costing','po','search'],
   engineer: ['dashboard','materials','suppliers','prices','projects','map','costing','po','search','reports'],
+  pending: ['dashboard'],
 };
 function can(perm){
   if (CURRENT_ROLE === 'admin') return true;
-  if (CURRENT_ROLE === 'data_entry') return ['edit_master','edit_projects','edit_quantities','edit_po'].includes(perm);
-  if (CURRENT_ROLE === 'engineer') return ['edit_quantities','edit_po','reports'].includes(perm);
-  if (CURRENT_ROLE === 'owner') return ['export','reports'].includes(perm);
+  if (CURRENT_ROLE === 'data_entry') return ['edit_master','edit_projects','edit_quantities','edit_po','export','restore'].includes(perm);
+  if (CURRENT_ROLE === 'engineer') return ['edit_po','reports'].includes(perm);
+  if (CURRENT_ROLE === 'owner') return ['reports'].includes(perm);
   return false;
 }
 function visibleTabs(){ return TABS.filter(t=> (ROLE_TABS[CURRENT_ROLE]||[]).includes(t.id)); }
@@ -1063,14 +1064,20 @@ async function loadRole(){
   }
   let mine = rows.find(r=> String(r.email||'').toLowerCase() === CURRENT_USER_EMAIL);
   if(!mine && CURRENT_USER_EMAIL && !rolesNotInstalled){
-    // bootstrap: the first account to log in on an empty table becomes admin
+    // the first account on an empty table claims admin; every other account
+    // registers itself read-only so it shows up in the admin's users list
+    for(const role of ['admin','pending']){
+      try {
+        await supabaseFetch('user_roles', { method:'POST', body: JSON.stringify([{ email: CURRENT_USER_EMAIL, role }]) });
+        break;
+      } catch(e){ /* policy refused this role — try the next one */ }
+    }
     try {
-      await supabaseFetch('user_roles', { method:'POST', body: JSON.stringify([{ email: CURRENT_USER_EMAIL, role:'admin' }]) });
       rows = (await supabaseFetch('user_roles?select=*')) || [];
       mine = rows.find(r=> String(r.email||'').toLowerCase() === CURRENT_USER_EMAIL);
     } catch(e){ mine = null; }
   }
-  CURRENT_ROLE = mine ? mine.role : (rolesNotInstalled ? 'admin' : 'owner');
+  CURRENT_ROLE = mine ? mine.role : (rolesNotInstalled ? 'admin' : 'pending');
   ROLES_TABLE_MISSING = rolesNotInstalled;
   DB.user_roles = rows;
   if(mine && mine.disabled) throw new Error('ACCOUNT_DISABLED');
@@ -3275,15 +3282,15 @@ function renderUsers(){
   }
   el.innerHTML = `
     <div class="section-title">
-      <div><h2>إدارة المستخدمين</h2><div class="desc">تحكم في أدوار المستخدمين وصلاحياتهم — إنشاء الحساب نفسه (بريد وكلمة مرور) يتم من لوحة تحكم Supabase</div></div>
+      <div><h2>إدارة المستخدمين</h2><div class="desc">أي حساب جديد يعمل تسجيل دخول لأول مرة يظهر هنا تلقائياً بدور «في انتظار تحديد الدور» — حدد دوره من القائمة. إنشاء الحساب نفسه (بريد وكلمة مرور) يتم من لوحة تحكم Supabase</div></div>
       <button class="btn" onclick="openUserForm()">+ إضافة مستخدم</button>
     </div>
     <div class="card">
       <div class="small-muted" style="line-height:2;">
-        <b>أدمن:</b> كل الصلاحيات + إدارة المستخدمين والحذف واستعادة النسخ الاحتياطية.<br>
-        <b>مالك:</b> اطلاع على كل البيانات + التقارير + نسخة احتياطية (بدون تعديل).<br>
-        <b>مدخل بيانات:</b> إدخال وتعديل المواد والموردين والأسعار والمشاريع والكميات وأوامر الشراء (بدون حذف).<br>
-        <b>مهندس موقع:</b> يرى مشروعاً واحداً محدداً له فقط، ويعدّل كمياته وأوامر شرائه.
+        <b>أدمن:</b> كل الصلاحيات + إدارة المستخدمين + الحذف + الاستعادة.<br>
+        <b>مالك:</b> اطلاع على كل البيانات + التقارير (بدون تعديل أو نسخ احتياطي).<br>
+        <b>مدخل بيانات:</b> إدخال وتعديل المواد والموردين والأسعار والمشاريع والكميات وأوامر الشراء + نسخة احتياطية واستعادة (أزرار الحذف للأدمن فقط).<br>
+        <b>مهندس موقع:</b> يرى مشروعاً واحداً محدداً له فقط — الكميات والتكلفة للاطلاع، وأوامر الشراء ينشئها ويعدّلها.
       </div>
     </div>
     <div class="card"><div class="table-scroll" id="usersTableWrap"></div></div>

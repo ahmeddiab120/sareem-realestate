@@ -7,7 +7,7 @@
 
 create table if not exists public.user_roles (
   email      text primary key,
-  role       text not null default 'owner' check (role in ('admin','owner','engineer','data_entry')),
+  role       text not null default 'pending' check (role in ('admin','owner','engineer','data_entry','pending')),
   project_id text,
   disabled   boolean not null default false,
   created_at timestamptz not null default now()
@@ -35,17 +35,17 @@ $$;
 
 create or replace function public.ur_role() returns text
 language sql stable security definer set search_path = public as $$
-  select role from public.user_roles where email = public.ur_email();
+  select role from public.user_roles where email = public.ur_email() and not disabled;
 $$;
 
 create or replace function public.is_admin() returns boolean
 language sql stable security definer set search_path = public as $$
-  select coalesce((select role from public.user_roles where email = public.ur_email()) = 'admin', false);
+  select coalesce((select role from public.user_roles where email = public.ur_email() and not disabled) = 'admin', false);
 $$;
 
 create or replace function public.role_in(variadic roles text[]) returns boolean
 language sql stable security definer set search_path = public as $$
-  select coalesce((select role from public.user_roles where email = public.ur_email()) = any(roles), false);
+  select coalesce((select role from public.user_roles where email = public.ur_email() and not disabled) = any(roles), false);
 $$;
 
 -- accounts with no row yet count as active (read-only) until an admin assigns them
@@ -56,7 +56,14 @@ $$;
 
 create or replace function public.user_project_id() returns text
 language sql stable security definer set search_path = public as $$
-  select project_id from public.user_roles where email = public.ur_email();
+  select project_id from public.user_roles where email = public.ur_email() and not disabled;
+$$;
+
+-- security definer on purpose: inside a policy, a plain "select 1 from user_roles"
+-- is itself filtered by RLS, so every rowless account would see an empty table
+create or replace function public.ur_table_empty() returns boolean
+language sql stable security definer set search_path = public as $$
+  select not exists (select 1 from public.user_roles);
 $$;
 
 -- ---------- drop the old wide-open policies ----------
@@ -83,7 +90,9 @@ begin
 end $$;
 
 -- ---------- materials / suppliers / prices ----------
--- read: every active account. write: admin + data_entry. delete: admin only.
+-- read: every active account. write: admin + data_entry.
+-- delete: admin + data_entry (data_entry needs it to run a backup restore; the
+-- site still hides every delete button from them).
 do $$
 declare t text;
 begin
@@ -91,7 +100,7 @@ begin
     execute format('create policy sel on public.%I for select to authenticated using (public.is_active_user())', t);
     execute format('create policy ins on public.%I for insert to authenticated with check (public.is_active_user() and public.role_in(''admin'',''data_entry''))', t);
     execute format('create policy upd on public.%I for update to authenticated using (public.is_active_user() and public.role_in(''admin'',''data_entry'')) with check (public.is_active_user() and public.role_in(''admin'',''data_entry''))', t);
-    execute format('create policy del on public.%I for delete to authenticated using (public.is_admin())', t);
+    execute format('create policy del on public.%I for delete to authenticated using (public.role_in(''admin'',''data_entry''))', t);
   end loop;
 end $$;
 
@@ -104,18 +113,19 @@ create policy ins on public.projects for insert to authenticated
 create policy upd on public.projects for update to authenticated
   using (public.is_active_user() and public.role_in('admin','data_entry'))
   with check (public.is_active_user() and public.role_in('admin','data_entry'));
-create policy del on public.projects for delete to authenticated using (public.is_admin());
+create policy del on public.projects for delete to authenticated using (public.role_in('admin','data_entry'));
 
 -- ---------- project_quantities ----------
+-- an engineer only reads the quantities of their own project
 create policy sel on public.project_quantities for select to authenticated
   using (public.is_active_user() and (public.role_in('admin','owner','data_entry') or project_id::text = public.user_project_id()));
 create policy ins on public.project_quantities for insert to authenticated
-  with check (public.is_active_user() and (public.role_in('admin','data_entry') or (public.role_in('engineer') and project_id::text = public.user_project_id())));
+  with check (public.is_active_user() and public.role_in('admin','data_entry'));
 create policy upd on public.project_quantities for update to authenticated
-  using (public.is_active_user() and (public.role_in('admin','data_entry') or (public.role_in('engineer') and project_id::text = public.user_project_id())))
-  with check (public.is_active_user() and (public.role_in('admin','data_entry') or (public.role_in('engineer') and project_id::text = public.user_project_id())));
+  using (public.is_active_user() and public.role_in('admin','data_entry'))
+  with check (public.is_active_user() and public.role_in('admin','data_entry'));
 create policy del on public.project_quantities for delete to authenticated
-  using (public.is_admin() or public.role_in('data_entry') or (public.role_in('engineer') and project_id::text = public.user_project_id()));
+  using (public.role_in('admin','data_entry'));
 
 -- ---------- purchase_orders ----------
 create policy sel on public.purchase_orders for select to authenticated
@@ -131,9 +141,21 @@ create policy del on public.purchase_orders for delete to authenticated
 -- ---------- user_roles ----------
 create policy sel_own_or_admin on public.user_roles for select to authenticated
   using (email = public.ur_email() or public.is_admin());
--- bootstrap: while the table is empty, the first account to log in claims admin
+-- bootstrap: while the table is empty the first account to log in claims admin.
+-- any other account registers itself as 'pending' on first login so it shows up
+-- in the admin's users list waiting for a real role.
 create policy ins_bootstrap_or_admin on public.user_roles for insert to authenticated
-  with check (public.is_admin() or (email = public.ur_email() and role = 'admin' and not exists (select 1 from public.user_roles)));
+  with check (
+    public.is_admin()
+    or (
+      email = public.ur_email()
+      and not exists (select 1 from public.user_roles r where r.email = public.ur_email())
+      and (
+        (role = 'admin' and public.ur_table_empty())
+        or role = 'pending'
+      )
+    )
+  );
 create policy upd_admin on public.user_roles for update to authenticated
   using (public.is_admin()) with check (public.is_admin());
 create policy del_admin on public.user_roles for delete to authenticated using (public.is_admin());
