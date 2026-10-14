@@ -649,6 +649,11 @@ body.printing-doc #printArea{display:block !important;padding:30px;max-width:800
   border-radius:12px;color:var(--red);
   font-size:12.5px;text-align:center;
 }
+.login-error.ok{
+  border-color:rgba(47,125,79,0.45);
+  background:rgba(47,125,79,0.09);
+  color:#2f7d4f;
+}
 .login-busy{font-size:12px;color:var(--ink-soft);margin-top:11px;}
 .titleblock .headstart{
   display:flex;align-items:center;gap:14px;
@@ -924,6 +929,28 @@ if (!window.storage) {
       <button type="submit" class="btn" id="loginBtn">تسجيل الدخول</button>
     </form>
     <div class="login-busy" id="loginBusy" hidden>جاري التحقق…</div>
+  </div>
+</div>
+
+<div id="recoveryGate" hidden>
+  <div class="login-card">
+    <img class="login-logo" id="recoveryLogo" alt="شعار الشركة">
+    <h2>تعيين كلمة مرور جديدة</h2>
+    <div class="small-muted" id="recoveryEmail" style="margin:-6px 0 14px;text-align:center;"></div>
+    <div class="login-error" id="rcMsg" hidden></div>
+    <form id="recoveryForm" autocomplete="off" onsubmit="event.preventDefault(); changeRecoveryPassword();">
+      <div class="field">
+        <label for="rcPass1">كلمة المرور الجديدة</label>
+        <input type="password" id="rcPass1" autocomplete="new-password" dir="ltr" required>
+      </div>
+      <div class="field">
+        <label for="rcPass2">تأكيد كلمة المرور</label>
+        <input type="password" id="rcPass2" autocomplete="new-password" dir="ltr" required>
+      </div>
+      <button type="submit" class="btn" id="rcSave">تحديث كلمة المرور</button>
+    </form>
+    <div class="login-busy" id="rcBusy" hidden>جاري التحديث…</div>
+    <button type="button" class="btn ghost" onclick="cancelRecovery()" style="margin-top:10px;width:100%;">إلغاء — الرابط مش ليا</button>
   </div>
 </div>
 
@@ -1264,7 +1291,6 @@ async function setActiveProject(id){
    PROFILE (user_metadata on the Supabase auth user)
 ========================================================= */
 let _pfAvatar = '';
-let _pfRecovery = false;
 function goProfile(){
   setUserMenuOpen(false);
   switchTab('profile');
@@ -1368,7 +1394,7 @@ async function renderProfile(){
     </div>
     <div class="card">
       <h3 style="margin-top:0;font-size:15px;color:var(--brick-dark);">كلمة المرور</h3>
-      <div class="small-muted" style="margin-bottom:12px;">${_pfRecovery? 'وصلت هنا من رابط إعادة التعيين — اكتب كلمة المرور الجديدة وثبّتها':'غيّر كلمة مرور حسابك في أي وقت'}</div>
+      <div class="small-muted" style="margin-bottom:12px;">غيّر كلمة مرور حسابك في أي وقت</div>
       <div class="form-grid">
         <div class="field full">
           <label for="pfPass1">كلمة المرور الجديدة</label>
@@ -1455,7 +1481,6 @@ async function changePassword(){
   try {
     const { error } = await sb.auth.updateUser({ password: p1 });
     if (error) throw error;
-    _pfRecovery = false;
     document.getElementById('pfPass1').value = '';
     document.getElementById('pfPass2').value = '';
     say('تم تغيير كلمة المرور', 'ok');
@@ -3625,16 +3650,15 @@ async function init(){
   buildPrintLetterhead();
   await loadAll();
   renderProjectSelector();
-  appReady = true;
-  switchTab(_pfRecovery ? 'profile' : 'dashboard');
+  switchTab('dashboard');
 }
 
 let appStarted = false;
-let appReady = false;
 
 function showLoginError(msg){
   const el = document.getElementById('loginError');
   el.textContent = msg;
+  el.classList.remove('ok');
   el.hidden = false;
 }
 
@@ -3694,7 +3718,6 @@ async function startApp(){
   } catch (e) {
     if ((e && e.message) !== 'ACCOUNT_DISABLED') throw e;
     appStarted = false;
-    appReady = false;
     document.getElementById('userMenu').hidden = true;
     document.getElementById('loginGate').hidden = false;
     // signOut triggers a page reload, so the reason is carried across it
@@ -3724,15 +3747,57 @@ async function doLogout(){
 sb.auth.onAuthStateChange((event) => {
   if (event === 'SIGNED_OUT' && appStarted) location.reload();
   if (event === 'PASSWORD_RECOVERY') {
-    // the recovery link lands here already signed in; the flag makes init() open the
-    // password card instead of the dashboard, and the call below covers the case where
-    // the app had already finished starting before this event arrived
-    _pfRecovery = true;
-    startApp()
-      .then(()=>{ if (appReady) switchTab('profile'); })
-      .catch((e)=> console.error('recovery start failed', e));
+    // the link carries a one-time token, not a login: show only the password
+    // form and never start the app, so whoever holds the link sees no data
+    sessionStorage.setItem('sareemRecovery', '1');
+    if (appStarted) location.reload();
+    else showRecoveryGate();
   }
 });
+
+function showRecoveryGate(){
+  const logo = document.getElementById('companyLogo');
+  if (logo) document.getElementById('recoveryLogo').src = logo.src;
+  document.getElementById('loginGate').hidden = true;
+  document.getElementById('recoveryGate').hidden = false;
+  sb.auth.getUser().then(({ data })=>{
+    document.getElementById('recoveryEmail').textContent =
+      'الحساب: ' + (((data && data.user) && data.user.email) || '');
+  }).catch(()=>{});
+}
+
+async function changeRecoveryPassword(){
+  const msg = document.getElementById('rcMsg');
+  const busy = document.getElementById('rcBusy');
+  const btn = document.getElementById('rcSave');
+  const say = (text)=>{ msg.textContent = text; msg.hidden = false; };
+  const p1 = document.getElementById('rcPass1').value;
+  const p2 = document.getElementById('rcPass2').value;
+  if (p1.length < 8) { say('كلمة المرور لازم تكون 8 حروف على الأقل'); return; }
+  if (p1 !== p2) { say('كلمتا المرور مش متطابقتين'); return; }
+  btn.disabled = true;
+  busy.hidden = false;
+  msg.hidden = true;
+  try {
+    const { error } = await sb.auth.updateUser({ password: p1 });
+    if (error) throw error;
+    sessionStorage.removeItem('sareemRecovery');
+    sessionStorage.setItem('sareemPassChanged', '1');
+    await sb.auth.signOut();
+    location.reload();
+  } catch (e) {
+    console.error('changeRecoveryPassword failed', e);
+    say(_pfErrText(e));
+    btn.disabled = false;
+    busy.hidden = true;
+  }
+}
+
+async function cancelRecovery(){
+  sessionStorage.removeItem('sareemRecovery');
+  await sb.auth.signOut();
+  location.reload();
+}
 
 (async function boot(){
   const logo = document.getElementById('companyLogo');
@@ -3741,6 +3806,19 @@ sb.auth.onAuthStateChange((event) => {
     sessionStorage.removeItem('sareemDisabled');
     showLoginError('تم إيقاف هذا الحساب — راجع الأدمن');
   }
+  if (sessionStorage.getItem('sareemPassChanged')) {
+    sessionStorage.removeItem('sareemPassChanged');
+    const note = document.getElementById('loginError');
+    note.textContent = 'تم تغيير كلمة المرور — سجّل دخول بالكلمة الجديدة';
+    note.classList.add('ok');
+    note.hidden = false;
+  }
+  if (/type=recovery/.test(location.hash)) {
+    sessionStorage.setItem('sareemRecovery', '1');
+    // the token must not stay in the address bar or the browser history
+    history.replaceState(null, '', location.pathname + location.search);
+  }
+  if (sessionStorage.getItem('sareemRecovery')) { showRecoveryGate(); return; }
   const { data: { session } } = await sb.auth.getSession();
   if (session) await startApp();
 })();
