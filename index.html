@@ -1029,6 +1029,7 @@ async function loadAll(){
 ========================================================= */
 let CURRENT_ROLE = 'owner';
 let CURRENT_USER_EMAIL = '';
+let ROLES_TABLE_MISSING = false;
 const ROLE_LABELS = {admin:'أدمن', owner:'مالك', engineer:'مهندس موقع', data_entry:'مدخل بيانات'};
 const ROLE_TABS = {
   admin: ['dashboard','materials','suppliers','prices','projects','map','costing','po','compare','search','reports','users'],
@@ -1053,9 +1054,15 @@ async function loadRole(){
   const { data: { session } } = await sb.auth.getSession();
   CURRENT_USER_EMAIL = String((session && session.user && session.user.email) || '').toLowerCase();
   let rows = [];
-  try { rows = (await supabaseFetch('user_roles?select=*')) || []; } catch(e){ rows = []; }
+  let rolesNotInstalled = false;
+  try { rows = (await supabaseFetch('user_roles?select=*')) || []; }
+  catch(e){
+    // the roles table is created by user-roles.sql; until it exists everyone keeps
+    // the old full access instead of being locked out of their own data
+    rolesNotInstalled = /Supabase 404|PGRST205|does not exist/i.test(String((e && e.message) || e));
+  }
   let mine = rows.find(r=> String(r.email||'').toLowerCase() === CURRENT_USER_EMAIL);
-  if(!mine && CURRENT_USER_EMAIL){
+  if(!mine && CURRENT_USER_EMAIL && !rolesNotInstalled){
     // bootstrap: the first account to log in on an empty table becomes admin
     try {
       await supabaseFetch('user_roles', { method:'POST', body: JSON.stringify([{ email: CURRENT_USER_EMAIL, role:'admin' }]) });
@@ -1063,7 +1070,8 @@ async function loadRole(){
       mine = rows.find(r=> String(r.email||'').toLowerCase() === CURRENT_USER_EMAIL);
     } catch(e){ mine = null; }
   }
-  CURRENT_ROLE = mine ? mine.role : 'owner';
+  CURRENT_ROLE = mine ? mine.role : (rolesNotInstalled ? 'admin' : 'owner');
+  ROLES_TABLE_MISSING = rolesNotInstalled;
   DB.user_roles = rows;
   if(mine && mine.disabled) throw new Error('ACCOUNT_DISABLED');
 }
@@ -3257,6 +3265,10 @@ function activeAdminsCount(exceptIdx){
 }
 function renderUsers(){
   const el = document.getElementById('panel-users');
+  if(ROLES_TABLE_MISSING){
+    el.innerHTML = `<div class="card"><div class="empty-row" style="text-align:center;padding:30px;">جدول الأدوار (user_roles) غير موجود بعد في قاعدة البيانات — نفّذ الملف user-roles.sql في Supabase ثم حدّث الصفحة</div></div>`;
+    return;
+  }
   if(CURRENT_ROLE!=='admin'){
     el.innerHTML = `<div class="card"><div class="empty-row" style="text-align:center;padding:30px;">هذه الصفحة للأدمن فقط</div></div>`;
     return;
