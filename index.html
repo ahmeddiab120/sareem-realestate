@@ -1626,13 +1626,13 @@ function makeSearchable(sel, opts){
   readOptions(); sync();
 }
 
-function askConfirm(message){
+function askConfirm(message, title, yesLabel){
   return new Promise(resolve=>{
     openModal(`
-      <h3>تأكيد الحذف</h3>
-      <div class="modal-sub">${esc(message)}</div>
+      <h3>${esc(title || 'تأكيد الحذف')}</h3>
+      <div class="modal-sub">${esc(message).replace(/&lt;br\s*\/?&gt;/gi, '<br>')}</div>
       <div class="modal-actions">
-        <button class="btn danger" id="confirmYesBtn">نعم، احذف</button>
+        <button class="btn danger" id="confirmYesBtn">${esc(yesLabel || 'نعم، احذف')}</button>
         <button class="btn ghost" id="confirmNoBtn">إلغاء</button>
       </div>
     `);
@@ -3076,7 +3076,7 @@ async function triggerRestore(){
       } else if (Array.isArray(data.project_quantities)) {
         qtyRows = data.project_quantities;
       }
-      const ok = await askConfirm(`سيتم استبدال كل البيانات الحالية ببيانات النسخة الاحتياطية:<br>${data.materials.length} مادة، ${data.suppliers.length} مورد، ${prices.length} سعر، ${projects.length} مشروع، ${qtyRows.length} بند كميات، ${orders.length} أمر شراء.<br>هل تريد المتابعة؟`);
+      const ok = await askConfirm(`سيتم استبدال كل البيانات الحالية ببيانات النسخة الاحتياطية:<br>${data.materials.length} مادة، ${data.suppliers.length} مورد، ${prices.length} سعر، ${projects.length} مشروع، ${qtyRows.length} بند كميات، ${orders.length} أمر شراء.<br>هل تريد المتابعة؟`, 'استعادة نسخة احتياطية', 'نعم، استعد');
       if(!ok) return;
 
       const wipeTable = async (table) => {
@@ -3525,7 +3525,7 @@ async function resetUserPassword(i){
   if(denyIf('manage_users')) return;
   const u = (DB.user_roles||[])[i];
   if(!u) return;
-  if(!(await askConfirm(`إرسال رابط إعادة تعيين كلمة المرور إلى ${u.email}؟`))) return;
+  if(!(await askConfirm(`إرسال رابط إعادة تعيين كلمة المرور إلى ${u.email}؟`, 'إعادة تعيين كلمة المرور', 'نعم، أرسل'))) return;
   try{
     const { error } = await sb.auth.resetPasswordForEmail(u.email, { redirectTo: location.origin + location.pathname });
     if(error) throw error;
