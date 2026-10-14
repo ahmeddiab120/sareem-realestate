@@ -521,6 +521,11 @@ select#activeProjectSelect option{background:#33291F;color:#F3ECDD;text-align:ce
   color:var(--brick);
   background: rgba(181,80,46,0.10);
 }
+#usersTableWrap td select{height:36px;padding:4px 8px;font-size:13px;min-width:132px;}
+#usersTableWrap .checkfield{margin-top:0;justify-content:flex-start;}
+@media (max-width:900px){
+  #usersTableWrap td select{font-size:16px;min-width:0;}
+}
 
 @media print{
   .titleblock, .tabs, .toolbar, .btn, .no-print{display:none !important;}
@@ -1020,6 +1025,50 @@ async function loadAll(){
 }
 
 /* =========================================================
+   ROLES & PERMISSIONS
+========================================================= */
+let CURRENT_ROLE = 'owner';
+let CURRENT_USER_EMAIL = '';
+const ROLE_LABELS = {admin:'أدمن', owner:'مالك', engineer:'مهندس موقع', data_entry:'مدخل بيانات'};
+const ROLE_TABS = {
+  admin: ['dashboard','materials','suppliers','prices','projects','map','costing','po','compare','search','reports','users'],
+  owner: ['dashboard','materials','suppliers','prices','projects','map','costing','po','compare','search','reports'],
+  data_entry: ['dashboard','materials','suppliers','prices','projects','map','costing','po','search'],
+  engineer: ['dashboard','materials','suppliers','prices','projects','map','costing','po','search','reports'],
+};
+function can(perm){
+  if (CURRENT_ROLE === 'admin') return true;
+  if (CURRENT_ROLE === 'data_entry') return ['edit_master','edit_projects','edit_quantities','edit_po'].includes(perm);
+  if (CURRENT_ROLE === 'engineer') return ['edit_quantities','edit_po','reports'].includes(perm);
+  if (CURRENT_ROLE === 'owner') return ['export','reports'].includes(perm);
+  return false;
+}
+function visibleTabs(){ return TABS.filter(t=> (ROLE_TABS[CURRENT_ROLE]||[]).includes(t.id)); }
+function denyIf(perm){
+  if(can(perm)) return false;
+  toast('ليس لديك صلاحية لهذا الإجراء');
+  return true;
+}
+async function loadRole(){
+  const { data: { session } } = await sb.auth.getSession();
+  CURRENT_USER_EMAIL = String((session && session.user && session.user.email) || '').toLowerCase();
+  let rows = [];
+  try { rows = (await supabaseFetch('user_roles?select=*')) || []; } catch(e){ rows = []; }
+  let mine = rows.find(r=> String(r.email||'').toLowerCase() === CURRENT_USER_EMAIL);
+  if(!mine && CURRENT_USER_EMAIL){
+    // bootstrap: the first account to log in on an empty table becomes admin
+    try {
+      await supabaseFetch('user_roles', { method:'POST', body: JSON.stringify([{ email: CURRENT_USER_EMAIL, role:'admin' }]) });
+      rows = (await supabaseFetch('user_roles?select=*')) || [];
+      mine = rows.find(r=> String(r.email||'').toLowerCase() === CURRENT_USER_EMAIL);
+    } catch(e){ mine = null; }
+  }
+  CURRENT_ROLE = mine ? mine.role : 'owner';
+  DB.user_roles = rows;
+  if(mine && mine.disabled) throw new Error('ACCOUNT_DISABLED');
+}
+
+/* =========================================================
    PRICING ENGINE
 ========================================================= */
 function latestPricesPerSupplier(materialId){
@@ -1105,13 +1154,15 @@ const TABS = [
   {id:'compare', label:'مقارنة الموردين'},
   {id:'search', label:'البحث الشامل'},
   {id:'reports', label:'التقارير'},
+  {id:'users', label:'المستخدمون'},
 ];
 
 function buildShell(){
   const tabsBar = document.getElementById('tabsBar');
-  tabsBar.innerHTML = TABS.map(t=>`<button class="tab-btn" data-tab="${t.id}" onclick="switchTab('${t.id}')">${t.label}</button>`).join('');
+  const tabs = visibleTabs();
+  tabsBar.innerHTML = tabs.map(t=>`<button class="tab-btn" data-tab="${t.id}" onclick="switchTab('${t.id}')">${t.label}</button>`).join('');
   const wrap = document.getElementById('panelsWrap');
-  wrap.innerHTML = TABS.map(t=>`<div class="panel" id="panel-${t.id}"></div>`).join('');
+  wrap.innerHTML = tabs.map(t=>`<div class="panel" id="panel-${t.id}"></div>`).join('');
   wrap.insertAdjacentHTML('beforeend', '<div class="panel" id="panel-profile"></div>');
 }
 function switchTab(id){
@@ -1133,6 +1184,7 @@ function renderPanel(id){
   if(id==='compare') renderCompare();
   if(id==='search') renderSearch();
   if(id==='reports') renderReports();
+  if(id==='users') renderUsers();
   if(id==='profile') renderProfile();
 }
 function renderAll(){
@@ -1553,9 +1605,9 @@ function renderDashboard(){
         <h2>لوحة التحكم</h2>
         <div class="desc">نظرة عامة على قاعدة البيانات وتكاليف المشاريع الحالية</div>
       </div>
-      <div style="display:flex;align-items:center;gap:8px;">
-        <button class="btn secondary" onclick="exportBackup()">💾 نسخة احتياطية</button>
-        <button class="btn ghost" onclick="triggerRestore()">♻️ استعادة</button>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        ${can('export')?`<button class="btn secondary" onclick="exportBackup()">💾 نسخة احتياطية</button>`:''}
+        ${can('restore')?`<button class="btn ghost" onclick="triggerRestore()">♻️ استعادة</button>`:''}
       </div>
     </div>
 
@@ -1619,7 +1671,7 @@ function renderMaterials(){
   el.innerHTML = `
     <div class="section-title">
       <div><h2>قاعدة المواد</h2><div class="desc">Master Material Database — كل مواد تنفيذ المبنى من البداية للتسليم</div></div>
-      <button class="btn" onclick="openMaterialForm()">+ إضافة مادة</button>
+      ${can('edit_master')?`<button class="btn" onclick="openMaterialForm()">+ إضافة مادة</button>`:''}
     </div>
     <div class="toolbar">
       <input type="text" id="matSearch" placeholder="بحث بالاسم أو الكود..." oninput="materialsFilter.q=this.value; renderMaterialsTable();">
@@ -1658,8 +1710,8 @@ function renderMaterialsTable(){
             <td class="mono">${lastPrice!==null? fmt(lastPrice):'—'}</td>
             <td><span class="pill ${m.status==='Active'?'ok':'off'}">${m.status==='Active'?'فعّال':'موقوف'}</span></td>
             <td>
-              <button class="icon-btn" onclick="openMaterialForm('${m.id}')" title="تعديل">✏️</button>
-              <button class="icon-btn" onclick="deleteMaterial('${m.id}')" title="حذف">🗑️</button>
+              ${can('edit_master')?`<button class="icon-btn" onclick="openMaterialForm('${m.id}')" title="تعديل">✏️</button>`:''}
+              ${can('delete_any')?`<button class="icon-btn" onclick="deleteMaterial('${m.id}')" title="حذف">🗑️</button>`:''}
             </td>
           </tr>`;
         }).join('') : `<tr class="empty-row"><td colspan="7">لا توجد مواد مطابقة</td></tr>`}
@@ -1668,6 +1720,7 @@ function renderMaterialsTable(){
   `;
 }
 function openMaterialForm(id){
+  if(denyIf('edit_master')) return;
   const m = id ? DB.materials.find(x=>x.id===id) : null;
   openModal(`
     <h3>${m? 'تعديل مادة':'إضافة مادة جديدة'}</h3>
@@ -1730,6 +1783,7 @@ async function saveMaterial(id){
   closeModal(); toast('تم الحفظ'); renderMaterialsTable(); if(CURRENT_TAB==='dashboard') renderDashboard();
 }
 async function deleteMaterial(id){
+  if(denyIf('delete_any')) return;
   if(!(await askConfirm('هل تريد حذف هذه المادة؟ سيتم حذف سجلات الأسعار والكميات المرتبطة بها أيضاً.'))) return;
   DB.materials = DB.materials.filter(x=>x.id!==id);
   DB.prices = DB.prices.filter(p=>p.material_id!==id);
@@ -1747,7 +1801,7 @@ function renderSuppliers(){
   el.innerHTML = `
     <div class="section-title">
       <div><h2>قاعدة الموردين</h2><div class="desc">Suppliers Database — بيانات التواصل والتوريد لكل مورد</div></div>
-      <button class="btn" onclick="openSupplierForm()">+ إضافة مورد</button>
+      ${can('edit_master')?`<button class="btn" onclick="openSupplierForm()">+ إضافة مورد</button>`:''}
     </div>
     <div class="toolbar">
       <input type="text" placeholder="بحث بالاسم..." oninput="suppliersFilter.q=this.value; renderSuppliersTable();">
@@ -1776,8 +1830,8 @@ function renderSuppliersTable(){
             <td>${'★'.repeat(s.rating||0)}${'☆'.repeat(5-(s.rating||0))}</td>
             <td><span class="pill ${s.status==='Active'?'ok':'off'}">${s.status==='Active'?'فعّال':'موقوف'}</span></td>
             <td>
-              <button class="icon-btn" onclick="openSupplierForm('${s.id}')" title="تعديل">✏️</button>
-              <button class="icon-btn" onclick="deleteSupplier('${s.id}')" title="حذف">🗑️</button>
+              ${can('edit_master')?`<button class="icon-btn" onclick="openSupplierForm('${s.id}')" title="تعديل">✏️</button>`:''}
+              ${can('delete_any')?`<button class="icon-btn" onclick="deleteSupplier('${s.id}')" title="حذف">🗑️</button>`:''}
             </td>
           </tr>`).join('') : `<tr class="empty-row"><td colspan="8">لا يوجد موردون مطابقون</td></tr>`}
       </tbody>
@@ -1785,6 +1839,7 @@ function renderSuppliersTable(){
   `;
 }
 function openSupplierForm(id){
+  if(denyIf('edit_master')) return;
   const s = id ? DB.suppliers.find(x=>x.id===id) : null;
   openModal(`
     <h3>${s?'تعديل مورد':'إضافة مورد جديد'}</h3>
@@ -1846,6 +1901,7 @@ async function saveSupplier(id){
   closeModal(); toast('تم الحفظ'); renderSuppliersTable();
 }
 async function deleteSupplier(id){
+  if(denyIf('delete_any')) return;
   if(!(await askConfirm('هل تريد حذف هذا المورد؟ سيتم حذف سجلات أسعاره وأوامر الشراء المرتبطة به أيضاً.'))) return;
   DB.suppliers = DB.suppliers.filter(x=>x.id!==id);
   DB.prices = DB.prices.filter(p=>p.supplier_id!==id);
@@ -1864,7 +1920,7 @@ function renderPrices(){
   el.innerHTML = `
     <div class="section-title">
       <div><h2>الأسعار وتاريخها</h2><div class="desc">كل سعر يُسجَّل كسجل تاريخي مستقل — لا يتم استبدال الأسعار القديمة</div></div>
-      <button class="btn" onclick="openPriceForm()" ${!DB.materials.length||!DB.suppliers.length?'disabled title="أضف مواد وموردين أولاً"':''}>+ تسجيل سعر جديد</button>
+      ${can('edit_master')?`<button class="btn" onclick="openPriceForm()" ${!DB.materials.length||!DB.suppliers.length?'disabled title="أضف مواد وموردين أولاً"':''}>+ تسجيل سعر جديد</button>`:''}
     </div>
     <div class="toolbar">
       <select id="priceMatFilter" onchange="pricesFilter.material=this.value; renderPricesTable();">
@@ -1899,7 +1955,7 @@ function renderPricesTable(){
             <td>${p.includes_vat?'✔️':'—'}</td>
             <td>${p.includes_transport?'✔️':'—'}</td>
             <td class="small-muted">${p.quote_ref||'-'}</td>
-            <td><button class="icon-btn" onclick="deletePrice('${p.id}')" title="حذف">🗑️</button></td>
+            <td>${can('delete_any')?`<button class="icon-btn" onclick="deletePrice('${p.id}')" title="حذف">🗑️</button>`:''}</td>
           </tr>`;
         }).join('') : `<tr class="empty-row"><td colspan="9">لا توجد أسعار مسجلة بعد</td></tr>`}
       </tbody>
@@ -1907,6 +1963,7 @@ function renderPricesTable(){
   `;
 }
 function openPriceForm(){
+  if(denyIf('edit_master')) return;
   openModal(`
     <h3>تسجيل سعر جديد</h3>
     <div class="modal-sub">سيتم إضافة هذا السعر كسجل جديد دون حذف أي سعر سابق</div>
@@ -1956,6 +2013,7 @@ async function savePrice(){
   closeModal(); toast('تم تسجيل السعر'); renderPricesTable();
 }
 async function deletePrice(id){
+  if(denyIf('delete_any')) return;
   if(!(await askConfirm('حذف هذا السجل التاريخي للسعر؟'))) return;
   DB.prices = DB.prices.filter(p=>p.id!==id);
   await saveKey('prices', DB.prices);
@@ -1970,7 +2028,7 @@ function renderProjects(){
   el.innerHTML = `
     <div class="section-title">
       <div><h2>المشاريع</h2><div class="desc">Projects Database</div></div>
-      <button class="btn" onclick="openProjectForm()">+ إضافة مشروع</button>
+      ${can('edit_projects')?`<button class="btn" onclick="openProjectForm()">+ إضافة مشروع</button>`:''}
     </div>
     <div class="card"><div class="table-scroll" id="projectsTableWrap"></div></div>
   `;
@@ -1992,8 +2050,8 @@ function renderProjectsTable(){
             <td class="mono">${p.units||'-'}</td>
             <td><span class="pill ${p.status==='نشط'?'ok':'info'}">${p.status||'نشط'}</span></td>
             <td>
-              <button class="icon-btn" onclick="openProjectForm('${p.id}')" title="تعديل">✏️</button>
-              <button class="icon-btn" onclick="deleteProject('${p.id}')" title="حذف">🗑️</button>
+              ${can('edit_projects')?`<button class="icon-btn" onclick="openProjectForm('${p.id}')" title="تعديل">✏️</button>`:''}
+              ${can('delete_any')?`<button class="icon-btn" onclick="deleteProject('${p.id}')" title="حذف">🗑️</button>`:''}
             </td>
           </tr>`).join('') : `<tr class="empty-row"><td colspan="8">لا توجد مشاريع بعد</td></tr>`}
       </tbody>
@@ -2001,6 +2059,7 @@ function renderProjectsTable(){
   `;
 }
 function openProjectForm(id){
+  if(denyIf('edit_projects')) return;
   const p = id ? DB.projects.find(x=>x.id===id) : null;
   openModal(`
     <h3>${p?'تعديل مشروع':'إضافة مشروع جديد'}</h3>
@@ -2072,6 +2131,7 @@ async function saveProject(id){
   if(CURRENT_TAB==='dashboard') renderDashboard();
 }
 async function deleteProject(id){
+  if(denyIf('delete_any')) return;
   if(!(await askConfirm('حذف هذا المشروع وكل كمياته وأوامر الشراء المرتبطة به؟'))) return;
   DB.projects = DB.projects.filter(x=>x.id!==id);
   delete DB.project_quantities[id];
@@ -2206,7 +2266,7 @@ function renderCosting(){
     <div class="section-title">
       <div><h2>كميات وتكلفة المشروع</h2><div class="desc">المشروع النشط: <b>${project.name}</b> — اختر المشروع من أعلى الصفحة لتبديله</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button class="btn" onclick="openQtyForm('${project.id}')" ${!DB.materials.length?'disabled title="أضف مواد أولاً"':''}>+ إضافة بند كمية</button>
+        ${can('edit_quantities')?`<button class="btn" onclick="openQtyForm('${project.id}')" ${!DB.materials.length?'disabled title="أضف مواد أولاً"':''}>+ إضافة بند كمية</button>`:''}
       </div>
     </div>
 
@@ -2232,8 +2292,8 @@ function renderCosting(){
               <td class="mono">${fmt(unitPrice)}</td>
               <td class="mono">${fmt(total)}</td>
               <td>
-                <button class="icon-btn" onclick="openQtyForm('${project.id}','${r.id}')" title="تعديل">✏️</button>
-                <button class="icon-btn" onclick="deleteQtyRow('${project.id}','${r.id}')" title="حذف">🗑️</button>
+                ${can('edit_quantities')?`<button class="icon-btn" onclick="openQtyForm('${project.id}','${r.id}')" title="تعديل">✏️</button>
+                <button class="icon-btn" onclick="deleteQtyRow('${project.id}','${r.id}')" title="حذف">🗑️</button>`:''}
               </td>
             </tr>`;
           }).join('') : `<tr class="empty-row"><td colspan="9">لا توجد بنود كميات مضافة لهذا المشروع بعد</td></tr>`}
@@ -2269,6 +2329,7 @@ function renderCosting(){
   `;
 }
 function openQtyForm(projectId, rowId){
+  if(denyIf('edit_quantities')) return;
   const rows = getProjectQuantities(projectId);
   const r = rowId ? rows.find(x=>x.id===rowId) : null;
   openModal(`
@@ -2344,6 +2405,7 @@ async function saveQtyRow(projectId, rowId){
   closeModal(); toast('تم الحفظ'); renderCosting();
 }
 async function deleteQtyRow(projectId, rowId){
+  if(denyIf('edit_quantities')) return;
   DB.project_quantities[projectId] = (DB.project_quantities[projectId]||[]).filter(x=>x.id!==rowId);
   await saveKey('project_quantities', DB.project_quantities);
   toast('تم الحذف'); renderCosting();
@@ -2381,7 +2443,7 @@ function renderPO(){
   el.innerHTML = `
     <div class="section-title">
       <div><h2>أوامر الشراء</h2><div class="desc">تسجيل داخلي لمتابعة طلبات الشراء الفعلية من الموردين، مع إمكانية تصدير مستند PDF قابل للطباعة والتسليم</div></div>
-      <button class="btn" onclick="openPOForm()" ${!DB.suppliers.length||!DB.materials.length?'disabled title="أضف مواد وموردين أولاً"':''}>+ إضافة أمر شراء</button>
+      ${can('edit_po')?`<button class="btn" onclick="openPOForm()" ${!DB.suppliers.length||!DB.materials.length?'disabled title="أضف مواد وموردين أولاً"':''}>+ إضافة أمر شراء</button>`:''}
     </div>
     <div class="toolbar">
       <select id="poProjFilter" onchange="poFilter.project=this.value; renderPOTable();">
@@ -2424,8 +2486,8 @@ function renderPOTable(){
             <td><span class="pill ${statusClass}">${po.status}</span></td>
             <td>
               <button class="icon-btn" onclick="printPO('${po.id}')" title="طباعة / تصدير PDF">🖨️</button>
-              <button class="icon-btn" onclick="openPOForm('${po.id}')" title="تعديل">✏️</button>
-              <button class="icon-btn" onclick="deletePO('${po.id}')" title="حذف">🗑️</button>
+              ${can('edit_po')?`<button class="icon-btn" onclick="openPOForm('${po.id}')" title="تعديل">✏️</button>
+              <button class="icon-btn" onclick="deletePO('${po.id}')" title="حذف">🗑️</button>`:''}
             </td>
           </tr>`;
         }).join('') : `<tr class="empty-row"><td colspan="8">لا توجد أوامر شراء مسجلة بعد</td></tr>`}
@@ -2439,6 +2501,7 @@ function nextPONumber(dateStr){
   return `PO-${year}-${String(countThisYear+1).padStart(4,'0')}`;
 }
 function openPOForm(id){
+  if(denyIf('edit_po')) return;
   const po = id ? DB.purchase_orders.find(x=>x.id===id) : null;
   poDraftId = id || null;
   poDraftItems = po ? JSON.parse(JSON.stringify(po.items||[])) : [{material_id:'', quantity:'', unit:'', unit_price:''}];
@@ -2588,6 +2651,7 @@ async function savePO(){
   closeModal(); toast('تم الحفظ'); renderPOTable();
 }
 async function deletePO(id){
+  if(denyIf('edit_po')) return;
   if(!(await askConfirm('حذف أمر الشراء هذا نهائياً؟'))) return;
   DB.purchase_orders = DB.purchase_orders.filter(x=>x.id!==id);
   await saveKey('purchase_orders', DB.purchase_orders);
@@ -2845,6 +2909,7 @@ function jumpToCompare(matId){
    BACKUP / RESTORE
 ========================================================= */
 async function exportBackup(){
+  if(denyIf('export')) return;
   try{
     const [materials, suppliers, prices, projects, project_quantities, purchase_orders] = await Promise.all([
       supabaseFetch('materials?select=*'),
@@ -2883,6 +2948,7 @@ async function exportBackup(){
   }
 }
 async function triggerRestore(){
+  if(denyIf('restore')) return;
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = '.json,application/json';
@@ -3184,6 +3250,202 @@ function exportCsv(tableId, filename){
 }
 
 /* =========================================================
+   USERS TAB (admin only — roles & permissions)
+========================================================= */
+function activeAdminsCount(exceptIdx){
+  return (DB.user_roles||[]).filter((r,i)=> r.role==='admin' && !r.disabled && i!==exceptIdx).length;
+}
+function renderUsers(){
+  const el = document.getElementById('panel-users');
+  if(CURRENT_ROLE!=='admin'){
+    el.innerHTML = `<div class="card"><div class="empty-row" style="text-align:center;padding:30px;">هذه الصفحة للأدمن فقط</div></div>`;
+    return;
+  }
+  el.innerHTML = `
+    <div class="section-title">
+      <div><h2>إدارة المستخدمين</h2><div class="desc">تحكم في أدوار المستخدمين وصلاحياتهم — إنشاء الحساب نفسه (بريد وكلمة مرور) يتم من لوحة تحكم Supabase</div></div>
+      <button class="btn" onclick="openUserForm()">+ إضافة مستخدم</button>
+    </div>
+    <div class="card">
+      <div class="small-muted" style="line-height:2;">
+        <b>أدمن:</b> كل الصلاحيات + إدارة المستخدمين والحذف واستعادة النسخ الاحتياطية.<br>
+        <b>مالك:</b> اطلاع على كل البيانات + التقارير + نسخة احتياطية (بدون تعديل).<br>
+        <b>مدخل بيانات:</b> إدخال وتعديل المواد والموردين والأسعار والمشاريع والكميات وأوامر الشراء (بدون حذف).<br>
+        <b>مهندس موقع:</b> يرى مشروعاً واحداً محدداً له فقط، ويعدّل كمياته وأوامر شرائه.
+      </div>
+    </div>
+    <div class="card"><div class="table-scroll" id="usersTableWrap"></div></div>
+  `;
+  renderUsersTable();
+}
+function renderUsersTable(){
+  const wrap = document.getElementById('usersTableWrap');
+  if(!wrap) return;
+  const rows = DB.user_roles||[];
+  wrap.innerHTML = `
+    <table>
+      <thead><tr><th>البريد الإلكتروني</th><th>الدور</th><th>المشروع (لمهندس الموقع)</th><th>الحالة</th><th></th></tr></thead>
+      <tbody>
+        ${rows.length? rows.map((u,i)=>{
+          const isMe = String(u.email||'').toLowerCase()===CURRENT_USER_EMAIL;
+          const lastAdmin = u.role==='admin' && !u.disabled && activeAdminsCount(i)===0;
+          return `<tr>
+            <td class="mono">${u.email}${isMe?` <span class="pill info">أنت</span>`:''}</td>
+            <td>
+              <select onchange="setUserRole(${i}, this.value)" ${lastAdmin?'disabled title="لا يمكن تغيير دور آخر أدمن"':''}>
+                ${Object.keys(ROLE_LABELS).map(r=>`<option value="${r}" ${u.role===r?'selected':''}>${ROLE_LABELS[r]}</option>`).join('')}
+              </select>
+            </td>
+            <td>
+              ${u.role==='engineer'?`<select onchange="setUserProject(${i}, this.value)">
+                <option value="">— اختر مشروعاً —</option>
+                ${DB.projects.map(p=>`<option value="${p.id}" ${u.project_id===p.id?'selected':''}>${p.name}</option>`).join('')}
+              </select>`:`<span class="small-muted">—</span>`}
+            </td>
+            <td>
+              <div class="checkfield">
+                <input type="checkbox" ${u.disabled?'':'checked'} onchange="setUserEnabled(${i}, this.checked)" ${(isMe||lastAdmin)?'disabled':''}>
+                <label>${u.disabled?'موقوف':'فعّال'}</label>
+              </div>
+            </td>
+            <td>
+              <button class="icon-btn" onclick="resetUserPassword(${i})" title="إرسال رابط إعادة تعيين كلمة المرور">🔑</button>
+              ${(!isMe&&!lastAdmin)?`<button class="icon-btn" onclick="deleteUser(${i})" title="حذف">🗑️</button>`:''}
+            </td>
+          </tr>`;
+        }).join('') : `<tr class="empty-row"><td colspan="5">لا يوجد مستخدمون بعد — أضف أول مستخدم</td></tr>`}
+      </tbody>
+    </table>
+  `;
+}
+async function patchUser(i, patch){
+  const u = (DB.user_roles||[])[i];
+  if(!u) return null;
+  try{
+    await supabaseFetch(`user_roles?email=eq.${encodeURIComponent(u.email)}`, { method:'PATCH', body: JSON.stringify(patch) });
+    DB.user_roles = (await supabaseFetch('user_roles?select=*')) || [];
+    return DB.user_roles;
+  }catch(e){
+    toast('تعذر الحفظ: ' + (e && e.message ? e.message : e));
+    renderUsersTable();
+    return null;
+  }
+}
+async function setUserRole(i, role){
+  if(denyIf('manage_users')) return;
+  const u = (DB.user_roles||[])[i];
+  if(!u) return;
+  if(u.role==='admin' && role!=='admin' && activeAdminsCount(i)===0){
+    toast('لا يمكن تغيير دور آخر أدمن — رقِّ مستخدماً آخر أولاً');
+    renderUsersTable();
+    return;
+  }
+  const ok = await patchUser(i, { role, project_id: role==='engineer' ? (u.project_id||null) : null });
+  if(!ok) return;
+  if(String(u.email||'').toLowerCase()===CURRENT_USER_EMAIL){
+    toast('تم تغيير دورك — جاري تحديث الصلاحيات');
+    await init();
+    return;
+  }
+  toast('تم حفظ الدور');
+  renderUsersTable();
+}
+async function setUserProject(i, projectId){
+  if(denyIf('manage_users')) return;
+  const ok = await patchUser(i, { project_id: projectId || null });
+  if(ok) toast('تم حفظ المشروع');
+}
+async function setUserEnabled(i, enabled){
+  if(denyIf('manage_users')) return;
+  const u = (DB.user_roles||[])[i];
+  if(!u) return;
+  if(String(u.email||'').toLowerCase()===CURRENT_USER_EMAIL){
+    toast('لا يمكنك إيقاف حسابك');
+    renderUsersTable();
+    return;
+  }
+  if(!enabled && u.role==='admin' && activeAdminsCount(i)===0){
+    toast('لا يمكن إيقاف آخر أدمن');
+    renderUsersTable();
+    return;
+  }
+  const ok = await patchUser(i, { disabled: !enabled });
+  if(ok) toast(enabled?'تم تفعيل المستخدم':'تم إيقاف المستخدم');
+}
+async function deleteUser(i){
+  if(denyIf('manage_users')) return;
+  const u = (DB.user_roles||[])[i];
+  if(!u) return;
+  if(String(u.email||'').toLowerCase()===CURRENT_USER_EMAIL){ toast('لا يمكنك حذف حسابك'); return; }
+  if(u.role==='admin' && activeAdminsCount(i)===0){ toast('لا يمكن حذف آخر أدمن'); return; }
+  if(!(await askConfirm(`حذف ${u.email} من قائمة المستخدمين؟ الحساب نفسه يبقى في Supabase.`))) return;
+  try{
+    await supabaseFetch(`user_roles?email=eq.${encodeURIComponent(u.email)}`, { method:'DELETE' });
+    DB.user_roles = (await supabaseFetch('user_roles?select=*')) || [];
+    toast('تم الحذف');
+    renderUsersTable();
+  }catch(e){
+    toast('تعذر الحذف: ' + (e && e.message ? e.message : e));
+  }
+}
+async function resetUserPassword(i){
+  if(denyIf('manage_users')) return;
+  const u = (DB.user_roles||[])[i];
+  if(!u) return;
+  if(!(await askConfirm(`إرسال رابط إعادة تعيين كلمة المرور إلى ${u.email}؟`))) return;
+  try{
+    const { error } = await sb.auth.resetPasswordForEmail(u.email, { redirectTo: location.origin + location.pathname });
+    if(error) throw error;
+    toast('تم إرسال رابط إعادة التعيين إلى بريد المستخدم');
+  }catch(e){
+    toast('تعذر الإرسال: ' + (e && e.message ? e.message : e));
+  }
+}
+function openUserForm(){
+  if(denyIf('manage_users')) return;
+  openModal(`
+    <h3>إضافة مستخدم</h3>
+    <div class="modal-sub">اكتب البريد الإلكتروني للحساب المنشأ في Supabase ثم حدد دوره وصلاحياته</div>
+    <div class="form-grid">
+      <div class="field full"><label>البريد الإلكتروني*</label><input id="f_uemail" type="email" placeholder="name@example.com"></div>
+      <div class="field"><label>الدور*</label>
+        <select id="f_urole" onchange="document.getElementById('f_uproj_field').style.display = this.value==='engineer'?'':'none';">
+          ${Object.keys(ROLE_LABELS).map(r=>`<option value="${r}" ${r==='data_entry'?'selected':''}>${ROLE_LABELS[r]}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field" id="f_uproj_field" style="display:none;"><label>المشروع*</label>
+        <select id="f_uproj">
+          <option value="">— اختر مشروعاً —</option>
+          ${DB.projects.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="addUser()">إضافة</button>
+      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+    </div>
+  `);
+}
+async function addUser(){
+  if(denyIf('manage_users')) return;
+  const email = String(document.getElementById('f_uemail').value||'').trim().toLowerCase();
+  const role = document.getElementById('f_urole').value;
+  const projectId = document.getElementById('f_uproj').value || null;
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ toast('اكتب بريداً إلكترونياً صحيحاً'); return; }
+  if(role==='engineer' && !projectId){ toast('اختر المشروع الخاص بمهندس الموقع'); return; }
+  if((DB.user_roles||[]).some(u=> String(u.email||'').toLowerCase()===email)){ toast('هذا البريد مضاف بالفعل'); return; }
+  try{
+    await supabaseFetch('user_roles', { method:'POST', body: JSON.stringify([{ email, role, project_id: role==='engineer'? projectId : null, disabled: false }]) });
+    DB.user_roles = (await supabaseFetch('user_roles?select=*')) || [];
+    closeModal();
+    toast('تمت إضافة المستخدم');
+    renderUsersTable();
+  }catch(e){
+    toast('تعذرت الإضافة: ' + (e && e.message ? e.message : e));
+  }
+}
+
+/* =========================================================
    INIT
 ========================================================= */
 function buildPrintLetterhead(){
@@ -3202,6 +3464,7 @@ function buildPrintLetterhead(){
   `;
 }
 async function init(){
+  await loadRole();
   buildShell();
   buildPrintLetterhead();
   await loadAll();
@@ -3268,7 +3531,18 @@ async function startApp(){
   document.getElementById('loginGate').hidden = true;
   await renderUserChip();
   document.getElementById('userMenu').hidden = false;
-  await init();
+  try {
+    await init();
+  } catch (e) {
+    if ((e && e.message) !== 'ACCOUNT_DISABLED') throw e;
+    appStarted = false;
+    document.getElementById('userMenu').hidden = true;
+    document.getElementById('loginGate').hidden = false;
+    // signOut triggers a page reload, so the reason is carried across it
+    sessionStorage.setItem('sareemDisabled', '1');
+    await sb.auth.signOut();
+    showLoginError('تم إيقاف هذا الحساب — راجع الأدمن');
+  }
 }
 
 async function renderUserChip(){
@@ -3295,6 +3569,10 @@ sb.auth.onAuthStateChange((event) => {
 (async function boot(){
   const logo = document.getElementById('companyLogo');
   if (logo) document.getElementById('loginLogo').src = logo.src;
+  if (sessionStorage.getItem('sareemDisabled')) {
+    sessionStorage.removeItem('sareemDisabled');
+    showLoginError('تم إيقاف هذا الحساب — راجع الأدمن');
+  }
   const { data: { session } } = await sb.auth.getSession();
   if (session) await startApp();
 })();
