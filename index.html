@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' blob:; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://cdnjs.cloudflare.com https://server.arcgisonline.com https://*.arcgisonline.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org; connect-src 'self' https://jfsjegphqotlourvfpvo.supabase.co; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <title>قاعدة بيانات تكاليف المواد والموردين</title>
 <link rel="icon" type="image/png" sizes="64x64" href="favicon.png">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
@@ -788,8 +790,7 @@ button, .tab-btn, .icon-btn, .userchip{touch-action:manipulation;-webkit-user-se
   #loginGate,.titleblock .usermenu{display:none !important;}
 }
 </style>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.3/dist/umd/supabase.js" integrity="sha384-BWcjm9OdFth9TbhCxZPdm+gAOUMAzQy9nmTs12ioXdCcbVnJaPMn+fMUoQCLt60R" crossorigin="anonymous"></script>
 <script>
 const SUPABASE_URL = 'https://jfsjegphqotlourvfpvo.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_hKDp9RnHbR8F1TtPkX5ZEA_v_2rrmal';
@@ -989,6 +990,9 @@ let CURRENT_TAB = "dashboard";
 function uid(prefix){ return prefix + "_" + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 function todayStr(){ return new Date().toISOString().slice(0,10); }
 function fmt(n){ if(n===null||n===undefined||isNaN(n)) return "-"; return Number(n).toLocaleString('en-US',{maximumFractionDigits:2}); }
+// every value that came from the database goes through esc() before it reaches
+// innerHTML — otherwise a name or a note could carry script of its own
+function esc(v){ if(v===null||v===undefined) return ''; return String(v).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function toast(msg){
   const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');
   clearTimeout(window._toastTimer); window._toastTimer=setTimeout(()=>t.classList.remove('show'),2200);
@@ -1248,7 +1252,7 @@ function renderProjectSelector(){
     sel.innerHTML = `<option value="">لا يوجد مشروع نشط</option>`;
     return;
   }
-  sel.innerHTML = DB.projects.map(p=>`<option value="${p.id}" ${p.id===ACTIVE_PROJECT_ID?'selected':''}>${p.name}</option>`).join('');
+  sel.innerHTML = DB.projects.map(p=>`<option value="${p.id}" ${p.id===ACTIVE_PROJECT_ID?'selected':''}>${esc(p.name)}</option>`).join('');
 }
 async function setActiveProject(id){
   ACTIVE_PROJECT_ID = id;
@@ -1581,7 +1585,7 @@ function askConfirm(message){
   return new Promise(resolve=>{
     openModal(`
       <h3>تأكيد الحذف</h3>
-      <div class="modal-sub">${message}</div>
+      <div class="modal-sub">${esc(message)}</div>
       <div class="modal-actions">
         <button class="btn danger" id="confirmYesBtn">نعم، احذف</button>
         <button class="btn ghost" id="confirmNoBtn">إلغاء</button>
@@ -1675,18 +1679,18 @@ function renderDashboard(){
         ${alerts.length? alerts.slice(0,8).map(a=>`
           <div class="alert-item">
             <span class="alert-icon">${a.change>0?'📈':'📉'}</span>
-            <span>سعر <b>${a.material.name_ar}</b> ${a.change>0?'ارتفع':'انخفض'} بنسبة
+            <span>سعر <b>${esc(a.material.name_ar)}</b> ${a.change>0?'ارتفع':'انخفض'} بنسبة
             <b class="mono" style="color:${a.change>0?'var(--red)':'var(--green)'}">${fmt(Math.abs(a.change))}%</b>
-            <span class="small-muted">(${a.date})</span></span>
+            <span class="small-muted">(${esc(a.date)})</span></span>
           </div>`).join('') : `<div class="small-muted">لا توجد تغيرات أسعار ملحوظة حالياً</div>`}
         ${stale.length? `<div class="divider"></div><div class="small-muted" style="margin-bottom:6px;">مواد لم يتم تحديث سعرها منذ أكثر من 90 يوم:</div>
-          ${stale.slice(0,6).map(m=>`<div class="alert-item"><span class="alert-icon">🕘</span> ${m.name_ar}</div>`).join('')}`:''}
+          ${stale.slice(0,6).map(m=>`<div class="alert-item"><span class="alert-icon">🕘</span> ${esc(m.name_ar)}</div>`).join('')}`:''}
       </div>
       <div class="card">
         <h3 style="margin-top:0;font-size:15px;color:var(--brick-dark);">أرخص الموردين (الأكثر تقديماً لأقل سعر)</h3>
         ${topSuppliers.length? topSuppliers.map(t=>`
           <div class="bar-row">
-            <div class="bar-label">${t.supplier? t.supplier.name : '-'}</div>
+            <div class="bar-label">${t.supplier? esc(t.supplier.name) : '-'}</div>
             <div class="bar-track"><div class="bar-fill" style="width:${Math.min(100,t.count*20)}%"></div></div>
             <div class="bar-val">${t.count} مادة</div>
           </div>`).join('') : `<div class="small-muted">لا توجد بيانات كافية بعد</div>`}
@@ -1700,7 +1704,7 @@ function renderDashboard(){
         <thead><tr><th>المشروع</th><th>المساحة (م²)</th><th>تكلفة المواد</th><th>الإجمالي بعد الإضافات</th><th>تكلفة/م²</th></tr></thead>
         <tbody>
           ${costs.length? costs.map(({project,c})=>`
-            <tr><td>${project.name}</td><td class="mono">${fmt(project.built_area)}</td>
+            <tr><td>${esc(project.name)}</td><td class="mono">${fmt(project.built_area)}</td>
             <td class="mono">${fmt(c.materialCost)}</td><td class="mono">${fmt(c.finalTotal)}</td>
             <td class="mono">${c.costPerM2? fmt(c.costPerM2):'-'}</td></tr>`).join('')
             : `<tr class="empty-row"><td colspan="5">لا توجد مشاريع بعد — أضف مشروعاً من تبويب "المشاريع"</td></tr>`}
@@ -1751,11 +1755,11 @@ function renderMaterialsTable(){
           const latest = latestPricesPerSupplier(m.id).sort((a,b)=>b.price_date.localeCompare(a.price_date));
           const lastPrice = latest.length? Math.min(...latest.map(p=>Number(p.price))) : null;
           return `<tr>
-            <td class="mono">${m.code}</td>
-            <td>${m.name_ar}${m.name_en?`<div class="small-muted">${m.name_en}</div>`:''}</td>
-            <td>${m.brand?m.brand:'-'}</td>
-            <td><span class="badge-cat">${m.category}</span></td>
-            <td>${m.unit}</td>
+            <td class="mono">${esc(m.code)}</td>
+            <td>${esc(m.name_ar)}${m.name_en?`<div class="small-muted">${esc(m.name_en)}</div>`:''}</td>
+            <td>${m.brand?esc(m.brand):'-'}</td>
+            <td><span class="badge-cat">${esc(m.category)}</span></td>
+            <td>${esc(m.unit)}</td>
             <td class="mono">${lastPrice!==null? fmt(lastPrice):'—'}</td>
             <td><span class="pill ${m.status==='Active'?'ok':'off'}">${m.status==='Active'?'فعّال':'موقوف'}</span></td>
             <td>
@@ -1775,26 +1779,26 @@ function openMaterialForm(id){
     <h3>${m? 'تعديل مادة':'إضافة مادة جديدة'}</h3>
     <div class="modal-sub">سجل كامل بيانات المادة حسب مواصفات المشروع</div>
     <div class="form-grid">
-      <div class="field"><label>كود المادة</label><input id="f_code" value="${m?m.code:''}" placeholder="MAT-XXX-001"></div>
-      <div class="field"><label>اسم المادة (عربي)*</label><input id="f_name_ar" value="${m?m.name_ar:''}"></div>
-      <div class="field"><label>اسم المادة (إنجليزي)</label><input id="f_name_en" value="${m?m.name_en:''}"></div>
+      <div class="field"><label>كود المادة</label><input id="f_code" value="${esc(m?m.code:'')}" placeholder="MAT-XXX-001"></div>
+      <div class="field"><label>اسم المادة (عربي)*</label><input id="f_name_ar" value="${esc(m?m.name_ar:'')}"></div>
+      <div class="field"><label>اسم المادة (إنجليزي)</label><input id="f_name_en" value="${esc(m?m.name_en:'')}"></div>
       <div class="field"><label>القسم الرئيسي*</label>
         <select id="f_category">${CATEGORIES.map(c=>`<option ${m&&m.category===c?'selected':''}>${c}</option>`).join('')}</select>
       </div>
-      <div class="field"><label>التصنيف الفرعي</label><input id="f_subcategory" value="${m?m.subcategory:''}"></div>
+      <div class="field"><label>التصنيف الفرعي</label><input id="f_subcategory" value="${esc(m?m.subcategory:'')}"></div>
       <div class="field"><label>الوحدة*</label>
         <select id="f_unit">${UNITS.map(u=>`<option ${m&&m.unit===u?'selected':''}>${u}</option>`).join('')}</select>
       </div>
-      <div class="field"><label>المقاس</label><input id="f_size" value="${m?m.size:''}"></div>
-      <div class="field"><label>السماكة</label><input id="f_thickness" value="${m?m.thickness:''}"></div>
-      <div class="field"><label>القطر</label><input id="f_diameter" value="${m?m.diameter:''}"></div>
-      <div class="field"><label>الماركة/المصنع</label><input id="f_brand" value="${m?m.brand:''}"></div>
-      <div class="field"><label>بلد المنشأ</label><input id="f_origin" value="${m?m.origin:''}"></div>
+      <div class="field"><label>المقاس</label><input id="f_size" value="${esc(m?m.size:'')}"></div>
+      <div class="field"><label>السماكة</label><input id="f_thickness" value="${esc(m?m.thickness:'')}"></div>
+      <div class="field"><label>القطر</label><input id="f_diameter" value="${esc(m?m.diameter:'')}"></div>
+      <div class="field"><label>الماركة/المصنع</label><input id="f_brand" value="${esc(m?m.brand:'')}"></div>
+      <div class="field"><label>بلد المنشأ</label><input id="f_origin" value="${esc(m?m.origin:'')}"></div>
       <div class="field"><label>الحالة</label>
         <select id="f_status"><option ${!m||m.status==='Active'?'selected':''}>Active</option><option ${m&&m.status==='Inactive'?'selected':''}>Inactive</option></select>
       </div>
-      <div class="field full"><label>المواصفة</label><textarea id="f_spec">${m?m.spec:''}</textarea></div>
-      <div class="field full"><label>ملاحظات</label><textarea id="f_notes">${m?m.notes:''}</textarea></div>
+      <div class="field full"><label>المواصفة</label><textarea id="f_spec">${esc(m?m.spec:'')}</textarea></div>
+      <div class="field full"><label>ملاحظات</label><textarea id="f_notes">${esc(m?m.notes:'')}</textarea></div>
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="saveMaterial('${m?m.id:''}')">${m?'حفظ التعديلات':'إضافة المادة'}</button>
@@ -1871,12 +1875,12 @@ function renderSuppliersTable(){
       <tbody>
         ${rows.length? rows.map(s=>`
           <tr>
-            <td class="mono">${s.code}</td>
-            <td>${s.name}</td>
-            <td><span class="badge-cat">${s.type}</span></td>
-            <td class="small-muted">${s.materials_provided||'-'}</td>
-            <td class="small-muted">${s.phone||'-'}</td>
-            <td>${'★'.repeat(s.rating||0)}${'☆'.repeat(5-(s.rating||0))}</td>
+            <td class="mono">${esc(s.code)}</td>
+            <td>${esc(s.name)}</td>
+            <td><span class="badge-cat">${esc(s.type)}</span></td>
+            <td class="small-muted">${s.materials_provided?esc(s.materials_provided):'-'}</td>
+            <td class="small-muted">${s.phone?esc(s.phone):'-'}</td>
+            <td>${'★'.repeat(Math.max(0,Math.min(5,s.rating|0)))}${'☆'.repeat(Math.max(0,5-Math.min(5,s.rating|0)))}</td>
             <td><span class="pill ${s.status==='Active'?'ok':'off'}">${s.status==='Active'?'فعّال':'موقوف'}</span></td>
             <td>
               ${can('edit_master')?`<button class="icon-btn" onclick="openSupplierForm('${s.id}')" title="تعديل">✏️</button>`:''}
@@ -1893,25 +1897,25 @@ function openSupplierForm(id){
   openModal(`
     <h3>${s?'تعديل مورد':'إضافة مورد جديد'}</h3>
     <div class="form-grid">
-      <div class="field"><label>كود المورد</label><input id="f_code" value="${s?s.code:''}" placeholder="SUP-001"></div>
-      <div class="field"><label>اسم المورد*</label><input id="f_name" value="${s?s.name:''}"></div>
-      <div class="field"><label>اسم الشركة</label><input id="f_company" value="${s?s.company:''}"></div>
-      <div class="field"><label>المدينة</label><input id="f_city" value="${s?s.city:''}"></div>
-      <div class="field"><label>رقم التواصل</label><input id="f_phone" value="${s?s.phone:''}"></div>
-      <div class="field"><label>البريد الإلكتروني</label><input id="f_email" value="${s?s.email:''}"></div>
+      <div class="field"><label>كود المورد</label><input id="f_code" value="${esc(s?s.code:'')}" placeholder="SUP-001"></div>
+      <div class="field"><label>اسم المورد*</label><input id="f_name" value="${esc(s?s.name:'')}"></div>
+      <div class="field"><label>اسم الشركة</label><input id="f_company" value="${esc(s?s.company:'')}"></div>
+      <div class="field"><label>المدينة</label><input id="f_city" value="${esc(s?s.city:'')}"></div>
+      <div class="field"><label>رقم التواصل</label><input id="f_phone" value="${esc(s?s.phone:'')}"></div>
+      <div class="field"><label>البريد الإلكتروني</label><input id="f_email" value="${esc(s?s.email:'')}"></div>
       <div class="field"><label>نوع المورد</label>
         <select id="f_type">${SUPPLIER_TYPES.map(t=>`<option ${s&&s.type===t?'selected':''}>${t}</option>`).join('')}</select>
       </div>
-      <div class="field"><label>شروط الدفع</label><input id="f_payment_terms" value="${s?s.payment_terms:''}"></div>
-      <div class="field"><label>مدة التوريد</label><input id="f_lead_time" value="${s?s.lead_time:''}" placeholder="مثال: 7 أيام"></div>
-      <div class="field"><label>نطاق التوصيل</label><input id="f_delivery_range" value="${s?s.delivery_range:''}"></div>
-      <div class="field"><label>التقييم (1-5)</label><input id="f_rating" type="number" min="1" max="5" value="${s?s.rating:3}"></div>
+      <div class="field"><label>شروط الدفع</label><input id="f_payment_terms" value="${esc(s?s.payment_terms:'')}"></div>
+      <div class="field"><label>مدة التوريد</label><input id="f_lead_time" value="${esc(s?s.lead_time:'')}" placeholder="مثال: 7 أيام"></div>
+      <div class="field"><label>نطاق التوصيل</label><input id="f_delivery_range" value="${esc(s?s.delivery_range:'')}"></div>
+      <div class="field"><label>التقييم (1-5)</label><input id="f_rating" type="number" min="1" max="5" value="${esc(s?s.rating:3)}"></div>
       <div class="field"><label>الحالة</label>
         <select id="f_status"><option ${!s||s.status==='Active'?'selected':''}>Active</option><option ${s&&s.status==='Inactive'?'selected':''}>Inactive</option></select>
       </div>
       <div class="field full checkfield"><input type="checkbox" id="f_delivery" ${!s||s.delivery?'checked':''}><label>يوفر خدمة التوصيل</label></div>
-      <div class="field full"><label>المواد التي يوفرها</label><input id="f_materials_provided" value="${s?s.materials_provided:''}"></div>
-      <div class="field full"><label>ملاحظات</label><textarea id="f_notes">${s?s.notes:''}</textarea></div>
+      <div class="field full"><label>المواد التي يوفرها</label><input id="f_materials_provided" value="${esc(s?s.materials_provided:'')}"></div>
+      <div class="field full"><label>ملاحظات</label><textarea id="f_notes">${esc(s?s.notes:'')}</textarea></div>
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="saveSupplier('${s?s.id:''}')">${s?'حفظ التعديلات':'إضافة المورد'}</button>
@@ -1974,7 +1978,7 @@ function renderPrices(){
     <div class="toolbar">
       <select id="priceMatFilter" onchange="pricesFilter.material=this.value; renderPricesTable();">
         <option value="">كل المواد</option>
-        ${DB.materials.map(m=>`<option value="${m.id}">${m.name_ar}</option>`).join('')}
+        ${DB.materials.map(m=>`<option value="${m.id}">${esc(m.name_ar)}</option>`).join('')}
       </select>
       <div class="spacer"></div>
       <span class="small-muted">${DB.prices.length} سجل سعر</span>
@@ -1996,14 +2000,14 @@ function renderPricesTable(){
           const m = DB.materials.find(x=>x.id===p.material_id);
           const s = DB.suppliers.find(x=>x.id===p.supplier_id);
           return `<tr>
-            <td class="mono" style="white-space:nowrap">${p.price_date}</td>
-            <td>${m?m.name_ar:'—'}</td>
-            <td>${s?s.name:'—'}</td>
+            <td class="mono" style="white-space:nowrap">${esc(p.price_date)}</td>
+            <td>${m?esc(m.name_ar):'—'}</td>
+            <td>${s?esc(s.name):'—'}</td>
             <td class="mono">${fmt(p.price)}</td>
-            <td>${p.unit}</td>
+            <td>${esc(p.unit)}</td>
             <td>${p.includes_vat?'✔️':'—'}</td>
             <td>${p.includes_transport?'✔️':'—'}</td>
-            <td class="small-muted">${p.quote_ref||'-'}</td>
+            <td class="small-muted">${p.quote_ref?esc(p.quote_ref):'-'}</td>
             <td>${can('delete_any')?`<button class="icon-btn" onclick="deletePrice('${p.id}')" title="حذف">🗑️</button>`:''}</td>
           </tr>`;
         }).join('') : `<tr class="empty-row"><td colspan="9">لا توجد أسعار مسجلة بعد</td></tr>`}
@@ -2018,10 +2022,10 @@ function openPriceForm(){
     <div class="modal-sub">سيتم إضافة هذا السعر كسجل جديد دون حذف أي سعر سابق</div>
     <div class="form-grid">
       <div class="field"><label>المادة*</label>
-        <select id="f_material">${DB.materials.map(m=>`<option value="${m.id}">${m.name_ar} (${m.unit})</option>`).join('')}</select>
+        <select id="f_material">${DB.materials.map(m=>`<option value="${m.id}">${esc(m.name_ar)} (${esc(m.unit)})</option>`).join('')}</select>
       </div>
       <div class="field"><label>المورد*</label>
-        <select id="f_supplier">${DB.suppliers.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}</select>
+        <select id="f_supplier">${DB.suppliers.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select>
       </div>
       <div class="field"><label>السعر*</label><input id="f_price" type="number" step="0.01"></div>
       <div class="field"><label>تاريخ السعر*</label><input id="f_price_date" type="date" value="${todayStr()}"></div>
@@ -2091,13 +2095,13 @@ function renderProjectsTable(){
       <tbody>
         ${DB.projects.length? DB.projects.map(p=>`
           <tr>
-            <td class="mono">${p.code}</td>
-            <td>${p.name}</td>
-            <td class="small-muted">${p.location||'-'}</td>
-            <td><span class="badge-cat">${p.type||'-'}</span></td>
+            <td class="mono">${esc(p.code)}</td>
+            <td>${esc(p.name)}</td>
+            <td class="small-muted">${p.location?esc(p.location):'-'}</td>
+            <td><span class="badge-cat">${p.type?esc(p.type):'-'}</span></td>
             <td class="mono">${p.built_area?fmt(p.built_area):'-'}</td>
-            <td class="mono">${p.units||'-'}</td>
-            <td><span class="pill ${p.status==='نشط'?'ok':'info'}">${p.status||'نشط'}</span></td>
+            <td class="mono">${p.units?esc(p.units):'-'}</td>
+            <td><span class="pill ${p.status==='نشط'?'ok':'info'}">${esc(p.status||'نشط')}</span></td>
             <td>
               ${can('edit_projects')?`<button class="icon-btn" onclick="openProjectForm('${p.id}')" title="تعديل">✏️</button>`:''}
               ${can('delete_any')?`<button class="icon-btn" onclick="deleteProject('${p.id}')" title="حذف">🗑️</button>`:''}
@@ -2113,26 +2117,26 @@ function openProjectForm(id){
   openModal(`
     <h3>${p?'تعديل مشروع':'إضافة مشروع جديد'}</h3>
     <div class="form-grid">
-      <div class="field"><label>كود المشروع</label><input id="f_code" value="${p?p.code:''}" placeholder="PRJ-001"></div>
-      <div class="field"><label>اسم المشروع*</label><input id="f_name" value="${p?p.name:''}"></div>
-      <div class="field"><label>الموقع</label><input id="f_location" value="${p?p.location:''}"></div>
-      <div class="field"><label>نوع المشروع</label><input id="f_type" value="${p?p.type:''}" placeholder="سكني استثماري / فيلا / تجاري..."></div>
-      <div class="field"><label>خط العرض (Lat)</label><input id="f_lat" type="number" step="any" value="${p&&p.lat!=null?p.lat:''}" placeholder="24.7136"></div>
-      <div class="field"><label>خط الطول (Lng)</label><input id="f_lng" type="number" step="any" value="${p&&p.lng!=null?p.lng:''}" placeholder="46.6753"></div>
-      <div class="field"><label>مساحة الأرض (م²)</label><input id="f_land_area" type="number" value="${p&&p.land_area!=null?p.land_area:''}"></div>
-      <div class="field"><label>مساحة البناء الإجمالية (م²)</label><input id="f_built_area" type="number" value="${p&&p.built_area!=null?p.built_area:''}"></div>
-      <div class="field"><label>عدد الأدوار</label><input id="f_floors" type="number" value="${p&&p.floors!=null?p.floors:''}"></div>
-      <div class="field"><label>عدد الوحدات</label><input id="f_units" type="number" value="${p&&p.units!=null?p.units:''}"></div>
-      <div class="field"><label>تاريخ دراسة التكلفة</label><input id="f_study_date" type="date" value="${p&&p.study_date?p.study_date:todayStr()}"></div>
+      <div class="field"><label>كود المشروع</label><input id="f_code" value="${esc(p?p.code:'')}" placeholder="PRJ-001"></div>
+      <div class="field"><label>اسم المشروع*</label><input id="f_name" value="${esc(p?p.name:'')}"></div>
+      <div class="field"><label>الموقع</label><input id="f_location" value="${esc(p?p.location:'')}"></div>
+      <div class="field"><label>نوع المشروع</label><input id="f_type" value="${esc(p?p.type:'')}" placeholder="سكني استثماري / فيلا / تجاري..."></div>
+      <div class="field"><label>خط العرض (Lat)</label><input id="f_lat" type="number" step="any" value="${esc(p&&p.lat!=null?p.lat:'')}" placeholder="24.7136"></div>
+      <div class="field"><label>خط الطول (Lng)</label><input id="f_lng" type="number" step="any" value="${esc(p&&p.lng!=null?p.lng:'')}" placeholder="46.6753"></div>
+      <div class="field"><label>مساحة الأرض (م²)</label><input id="f_land_area" type="number" value="${esc(p&&p.land_area!=null?p.land_area:'')}"></div>
+      <div class="field"><label>مساحة البناء الإجمالية (م²)</label><input id="f_built_area" type="number" value="${esc(p&&p.built_area!=null?p.built_area:'')}"></div>
+      <div class="field"><label>عدد الأدوار</label><input id="f_floors" type="number" value="${esc(p&&p.floors!=null?p.floors:'')}"></div>
+      <div class="field"><label>عدد الوحدات</label><input id="f_units" type="number" value="${esc(p&&p.units!=null?p.units:'')}"></div>
+      <div class="field"><label>تاريخ دراسة التكلفة</label><input id="f_study_date" type="date" value="${esc(p&&p.study_date?p.study_date:todayStr())}"></div>
       <div class="field"><label>الحالة</label>
         <select id="f_status">${['نشط','مكتمل','متوقف'].map(s=>`<option ${p&&p.status===s?'selected':(!p&&s==='نشط'?'selected':'')}>${s}</option>`).join('')}</select>
       </div>
-      <div class="field full"><label>ملاحظات</label><textarea id="f_notes">${p?p.notes:''}</textarea></div>
+      <div class="field full"><label>ملاحظات</label><textarea id="f_notes">${esc(p?p.notes:'')}</textarea></div>
       <div class="field full"><label style="color:var(--brick-dark);">تكاليف إضافية اختيارية (منفصلة عن سعر المادة الأساسي)</label></div>
-      <div class="field"><label>نقل (%)</label><input id="f_transport_pct" type="number" value="${p&&p.extra_costs?p.extra_costs.transport_pct:0}"></div>
-      <div class="field"><label>هالك (%)</label><input id="f_wastage_pct" type="number" value="${p&&p.extra_costs?p.extra_costs.wastage_pct:0}"></div>
-      <div class="field"><label>ضريبة إضافية (%)</label><input id="f_vat_pct" type="number" value="${p&&p.extra_costs?p.extra_costs.vat_pct:0}"></div>
-      <div class="field"><label>مبلغ إضافي آخر (ر.س)</label><input id="f_other_amount" type="number" value="${p&&p.extra_costs?p.extra_costs.other_amount:0}"></div>
+      <div class="field"><label>نقل (%)</label><input id="f_transport_pct" type="number" value="${esc(p&&p.extra_costs?p.extra_costs.transport_pct:0)}"></div>
+      <div class="field"><label>هالك (%)</label><input id="f_wastage_pct" type="number" value="${esc(p&&p.extra_costs?p.extra_costs.wastage_pct:0)}"></div>
+      <div class="field"><label>ضريبة إضافية (%)</label><input id="f_vat_pct" type="number" value="${esc(p&&p.extra_costs?p.extra_costs.vat_pct:0)}"></div>
+      <div class="field"><label>مبلغ إضافي آخر (ر.س)</label><input id="f_other_amount" type="number" value="${esc(p&&p.extra_costs?p.extra_costs.other_amount:0)}"></div>
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="saveProject('${p?p.id:''}')">${p?'حفظ التعديلات':'إضافة المشروع'}</button>
@@ -2211,6 +2215,8 @@ function ensureLeaflet(){
       const css = document.createElement('link');
       css.id = 'leafletCss'; css.rel = 'stylesheet';
       css.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
+      css.integrity = 'sha384-c6Rcwz4e4CITMbu/NBmnNS8yN2sC3cUElMEMfP3vqqKFp7GOYaaBBCqmaWBjmkjb';
+      css.crossOrigin = 'anonymous';
       document.head.appendChild(css);
     }
     let s = document.getElementById('leafletJs');
@@ -2219,6 +2225,8 @@ function ensureLeaflet(){
       s = document.createElement('script');
       s.id = 'leafletJs';
       s.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
+      s.integrity = 'sha384-NElt3Op+9NBMCYaef5HxeJmU4Xeard/Lku8ek6hoPTvYkQPh3zLIrJP7KiRocsxO';
+      s.crossOrigin = 'anonymous';
       document.head.appendChild(s);
     }
     const settle = ()=> window.L ? resolve() : reject(new Error('leaflet-unavailable'));
@@ -2261,7 +2269,7 @@ function buildMap(){
     ${without.length? `
       <div class="card">
         <h3 style="margin-top:0;font-size:15px;color:var(--brick-dark);">مشاريع بدون إحداثيات (${without.length})</h3>
-        <div class="small-muted">${without.map(p=>p.name).join('، ')}</div>
+        <div class="small-muted">${esc(without.map(p=>p.name).join('، '))}</div>
       </div>`:''}
   `;
   if(leafletMap){ leafletMap.remove(); leafletMap = null; }
@@ -2284,7 +2292,7 @@ function buildMap(){
     const c = projectCoords(p);
     const cost = computeProjectCost(p.id);
     const mk = L.marker([c.lat, c.lng]).addTo(leafletMap);
-    mk.bindPopup(`<div class="map-popup"><b>${p.name}</b>${p.location?`<span>${p.location}</span><br>`:''}<span>الحالة: ${p.status||'-'}</span><br><span>تكلفة المواد: ${fmt(cost.materialCost)}</span></div>`);
+    mk.bindPopup(`<div class="map-popup"><b>${esc(p.name)}</b>${p.location?`<span>${esc(p.location)}</span><br>`:''}<span>الحالة: ${esc(p.status||'-')}</span><br><span>تكلفة المواد: ${fmt(cost.materialCost)}</span></div>`);
     return mk;
   });
   if(markers.length===1){
@@ -2313,7 +2321,7 @@ function renderCosting(){
 
   el.innerHTML = `
     <div class="section-title">
-      <div><h2>كميات وتكلفة المشروع</h2><div class="desc">المشروع النشط: <b>${project.name}</b> — اختر المشروع من أعلى الصفحة لتبديله</div></div>
+      <div><h2>كميات وتكلفة المشروع</h2><div class="desc">المشروع النشط: <b>${esc(project.name)}</b> — اختر المشروع من أعلى الصفحة لتبديله</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         ${can('edit_quantities')?`<button class="btn" onclick="openQtyForm('${project.id}')" ${!DB.materials.length?'disabled title="أضف مواد أولاً"':''}>+ إضافة بند كمية</button>`:''}
       </div>
@@ -2332,12 +2340,12 @@ function renderCosting(){
             const remaining = (Number(r.quantity)||0) - consumed;
             const methodLabel = PRICING_METHODS.find(pm=>pm.v===r.pricing_method)?.l || r.pricing_method;
             return `<tr>
-              <td>${mat?mat.name_ar:'—'}</td>
+              <td>${mat?esc(mat.name_ar):'—'}</td>
               <td class="mono">${fmt(r.quantity)}</td>
               <td class="mono">${fmt(consumed)}</td>
               <td class="mono" style="${remaining<0?'color:#c0392b;font-weight:700;':''}">${fmt(remaining)}</td>
-              <td>${r.unit}</td>
-              <td><span class="badge-cat">${methodLabel}</span></td>
+              <td>${esc(r.unit)}</td>
+              <td><span class="badge-cat">${esc(methodLabel)}</span></td>
               <td class="mono">${fmt(unitPrice)}</td>
               <td class="mono">${fmt(total)}</td>
               <td>
@@ -2356,7 +2364,7 @@ function renderCosting(){
         <h3 style="margin-top:0;font-size:15px;color:var(--brick-dark);">التكلفة حسب القسم</h3>
         ${Object.keys(result.byCategory).length? Object.entries(result.byCategory).sort((a,b)=>b[1]-a[1]).map(([cat,val])=>`
           <div class="bar-row">
-            <div class="bar-label">${cat}</div>
+            <div class="bar-label">${esc(cat)}</div>
             <div class="bar-track"><div class="bar-fill" style="width:${Math.min(100,(val/Math.max(...Object.values(result.byCategory)))*100)}%"></div></div>
             <div class="bar-val">${fmt(val)}</div>
           </div>`).join('') : `<div class="small-muted">لا توجد بيانات بعد</div>`}
@@ -2386,11 +2394,11 @@ function openQtyForm(projectId, rowId){
     <div class="form-grid">
       <div class="field full"><label>المادة*</label>
         <select id="f_material" onchange="qtyMaterialChanged()">
-          ${DB.materials.map(m=>`<option value="${m.id}" data-unit="${m.unit}" ${r&&r.material_id===m.id?'selected':''}>${m.name_ar} (${m.unit})</option>`).join('')}
+          ${DB.materials.map(m=>`<option value="${m.id}" data-unit="${esc(m.unit)}" ${r&&r.material_id===m.id?'selected':''}>${esc(m.name_ar)} (${esc(m.unit)})</option>`).join('')}
         </select>
       </div>
-      <div class="field"><label>الكمية*</label><input id="f_quantity" type="number" step="0.01" value="${r?r.quantity:''}"></div>
-      <div class="field"><label>الوحدة</label><input id="f_unit" value="${r?r.unit:(DB.materials[0]?DB.materials[0].unit:'')}" readonly></div>
+      <div class="field"><label>الكمية*</label><input id="f_quantity" type="number" step="0.01" value="${esc(r?r.quantity:'')}"></div>
+      <div class="field"><label>الوحدة</label><input id="f_unit" value="${esc(r?r.unit:(DB.materials[0]?DB.materials[0].unit:''))}" readonly></div>
       <div class="field full"><label>طريقة التسعير*</label>
         <select id="f_method" onchange="qtyMethodChanged()">
           ${PRICING_METHODS.map(pm=>`<option value="${pm.v}" ${r&&r.pricing_method===pm.v?'selected':''}>${pm.l}</option>`).join('')}
@@ -2402,7 +2410,7 @@ function openQtyForm(projectId, rowId){
       </div>
       <div class="field full" id="f_manual_wrap" style="display:none;">
         <label>السعر اليدوي</label>
-        <input id="f_manual_price" type="number" step="0.01" value="${r?r.manual_price||'':''}">
+        <input id="f_manual_price" type="number" step="0.01" value="${esc(r?r.manual_price||'':'')}">
       </div>
     </div>
     <div class="modal-actions">
@@ -2424,7 +2432,7 @@ function qtyMaterialChanged(){
   const latest = latestPricesPerSupplier(sel.value);
   supSel.innerHTML = latest.map(p=>{
     const s = DB.suppliers.find(x=>x.id===p.supplier_id);
-    return `<option value="${p.supplier_id}">${s?s.name:'—'} — ${fmt(p.price)}</option>`;
+    return `<option value="${p.supplier_id}">${s?esc(s.name):'—'} — ${fmt(p.price)}</option>`;
   }).join('') || `<option value="">لا توجد أسعار مسجلة لهذه المادة</option>`;
 }
 function qtyMethodChanged(){
@@ -2497,7 +2505,7 @@ function renderPO(){
     <div class="toolbar">
       <select id="poProjFilter" onchange="poFilter.project=this.value; renderPOTable();">
         <option value="">كل المشاريع</option>
-        ${DB.projects.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}
+        ${DB.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}
       </select>
       <select id="poStatusFilter" onchange="poFilter.status=this.value; renderPOTable();">
         <option value="">كل الحالات</option>
@@ -2526,13 +2534,13 @@ function renderPOTable(){
           const sup = DB.suppliers.find(s=>s.id===po.supplier_id);
           const statusClass = po.status==='تم التوريد بالكامل' ? 'ok' : (po.status==='متأخر'||po.status==='ملغي' ? 'off' : 'info');
           return `<tr>
-            <td class="mono">${po.po_number}</td>
-            <td>${proj?proj.name:'—'}</td>
-            <td>${sup?sup.name:'—'}</td>
-            <td class="mono">${po.order_date}</td>
-            <td class="mono">${po.expected_delivery_date||'-'}</td>
+            <td class="mono">${esc(po.po_number)}</td>
+            <td>${proj?esc(proj.name):'—'}</td>
+            <td>${sup?esc(sup.name):'—'}</td>
+            <td class="mono">${esc(po.order_date)}</td>
+            <td class="mono">${po.expected_delivery_date?esc(po.expected_delivery_date):'-'}</td>
             <td class="mono">${fmt(poGrossOf(poTotal(po)))}</td>
-            <td><span class="pill ${statusClass}">${po.status}</span></td>
+            <td><span class="pill ${statusClass}">${esc(po.status)}</span></td>
             <td>
               <button class="icon-btn" onclick="printPO('${po.id}')" title="طباعة / تصدير PDF">🖨️</button>
               ${can('edit_po')?`<button class="icon-btn" onclick="openPOForm('${po.id}')" title="تعديل">✏️</button>
@@ -2558,19 +2566,19 @@ function openPOForm(id){
     <h3>${po?'تعديل أمر شراء':'إضافة أمر شراء جديد'}</h3>
     <div class="modal-sub">تسجيل داخلي لمتابعة الطلب — يمكن تصديره كمستند PDF بعد الحفظ</div>
     <div class="form-grid">
-      <div class="field"><label>رقم الأمر</label><input id="f_po_number" value="${po?po.po_number:nextPONumber(todayStr())}"></div>
+      <div class="field"><label>رقم الأمر</label><input id="f_po_number" value="${esc(po?po.po_number:nextPONumber(todayStr()))}"></div>
       <div class="field"><label>المشروع*</label>
-        <select id="f_project">${DB.projects.map(p=>`<option value="${p.id}" ${po&&po.project_id===p.id?'selected':(!po&&p.id===ACTIVE_PROJECT_ID?'selected':'')}>${p.name}</option>`).join('')}</select>
+        <select id="f_project">${DB.projects.map(p=>`<option value="${p.id}" ${po&&po.project_id===p.id?'selected':(!po&&p.id===ACTIVE_PROJECT_ID?'selected':'')}>${esc(p.name)}</option>`).join('')}</select>
       </div>
       <div class="field"><label>المورد*</label>
-        <select id="f_supplier" onchange="poSupplierChanged()">${DB.suppliers.map(s=>`<option value="${s.id}" ${po&&po.supplier_id===s.id?'selected':''}>${s.name}</option>`).join('')}</select>
+        <select id="f_supplier" onchange="poSupplierChanged()">${DB.suppliers.map(s=>`<option value="${s.id}" ${po&&po.supplier_id===s.id?'selected':''}>${esc(s.name)}</option>`).join('')}</select>
       </div>
-      <div class="field"><label>تاريخ الأمر*</label><input id="f_order_date" type="date" value="${po?po.order_date:todayStr()}"></div>
-      <div class="field"><label>تاريخ التسليم المتوقع</label><input id="f_expected_delivery" type="date" value="${po&&po.expected_delivery_date?po.expected_delivery_date:''}"></div>
+      <div class="field"><label>تاريخ الأمر*</label><input id="f_order_date" type="date" value="${esc(po?po.order_date:todayStr())}"></div>
+      <div class="field"><label>تاريخ التسليم المتوقع</label><input id="f_expected_delivery" type="date" value="${esc(po&&po.expected_delivery_date?po.expected_delivery_date:'')}"></div>
       <div class="field"><label>الحالة</label>
         <select id="f_status">${PO_STATUSES.map(s=>`<option ${po&&po.status===s?'selected':(!po&&s===PO_STATUSES[0]?'selected':'')}>${s}</option>`).join('')}</select>
       </div>
-      <div class="field full"><label>ملاحظات</label><textarea id="f_notes">${po?po.notes||'':''}</textarea></div>
+      <div class="field full"><label>ملاحظات</label><textarea id="f_notes">${esc(po?po.notes||'':'')}</textarea></div>
     </div>
     <div class="divider"></div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
@@ -2608,13 +2616,13 @@ function poRenderItems(){
             <td>
               <select class="po-mat-select" onchange="poItemMaterialChanged(${idx}, this.value)">
                 <option value="">اختر مادة...</option>
-                ${DB.materials.map(m=>`<option value="${m.id}" ${it.material_id===m.id?'selected':''}>${m.name_ar}</option>`).join('')}
+                ${DB.materials.map(m=>`<option value="${m.id}" ${it.material_id===m.id?'selected':''}>${esc(m.name_ar)}</option>`).join('')}
               </select>
             </td>
-            <td>${itMat&&itMat.brand?itMat.brand:'-'}</td>
-            <td><input class="po-qty-input" type="number" step="0.01" value="${it.quantity}" oninput="poItemFieldChanged(${idx},'quantity',this.value)"></td>
-            <td>${it.unit||'-'}</td>
-            <td><input class="po-price-input" type="number" step="0.01" value="${it.unit_price}" oninput="poItemFieldChanged(${idx},'unit_price',this.value)"></td>
+            <td>${itMat&&itMat.brand?esc(itMat.brand):'-'}</td>
+            <td><input class="po-qty-input" type="number" step="0.01" value="${esc(it.quantity)}" oninput="poItemFieldChanged(${idx},'quantity',this.value)"></td>
+            <td>${it.unit?esc(it.unit):'-'}</td>
+            <td><input class="po-price-input" type="number" step="0.01" value="${esc(it.unit_price)}" oninput="poItemFieldChanged(${idx},'unit_price',this.value)"></td>
             <td class="mono" id="poRowTotal_${idx}">${fmt((Number(it.quantity)||0)*(Number(it.unit_price)||0))}</td>
             <td>
               <button class="icon-btn" onclick="poRefillItemPrice(${idx})" title="سحب آخر سعر مخزّن لهذا المورد">↻</button>
@@ -2727,17 +2735,17 @@ function printPO(id){
         </div>
         <div class="po-doc-title">
           <div>أمر شراء</div>
-          <div class="mono" style="font-size:13px;">${po.po_number}</div>
+          <div class="mono" style="font-size:13px;">${esc(po.po_number)}</div>
         </div>
       </div>
       <div class="divider"></div>
       <div class="po-doc-meta">
-        <div><b>المشروع:</b> ${proj?proj.name:'-'}</div>
-        <div><b>تاريخ الأمر:</b> ${po.order_date}</div>
-        <div><b>المورد:</b> ${sup?sup.name:'-'}</div>
-        <div><b>تاريخ التسليم المتوقع:</b> ${po.expected_delivery_date||'-'}</div>
-        <div><b>جهة تواصل المورد:</b> ${sup?(sup.phone||'-'):'-'}</div>
-        <div><b>الحالة:</b> ${po.status}</div>
+        <div><b>المشروع:</b> ${proj?esc(proj.name):'-'}</div>
+        <div><b>تاريخ الأمر:</b> ${esc(po.order_date)}</div>
+        <div><b>المورد:</b> ${sup?esc(sup.name):'-'}</div>
+        <div><b>تاريخ التسليم المتوقع:</b> ${po.expected_delivery_date?esc(po.expected_delivery_date):'-'}</div>
+        <div><b>جهة تواصل المورد:</b> ${sup?(sup.phone?esc(sup.phone):'-'):'-'}</div>
+        <div><b>الحالة:</b> ${esc(po.status)}</div>
       </div>
       <div class="table-scroll">
       <table class="po-doc-table">
@@ -2745,7 +2753,7 @@ function printPO(id){
         <tbody>
           ${po.items.map((it,i)=>{
             const mat = DB.materials.find(m=>m.id===it.material_id);
-            return `<tr><td>${i+1}</td><td>${mat?mat.name_ar:'-'}</td><td>${mat&&mat.brand?mat.brand:'-'}</td><td>${fmt(it.quantity)}</td><td>${it.unit}</td>
+            return `<tr><td>${i+1}</td><td>${mat?esc(mat.name_ar):'-'}</td><td>${mat&&mat.brand?esc(mat.brand):'-'}</td><td>${fmt(it.quantity)}</td><td>${esc(it.unit)}</td>
               <td>${fmt(it.unit_price)}</td><td>${fmt((Number(it.quantity)||0)*(Number(it.unit_price)||0))}</td></tr>`;
           }).join('')}
         </tbody>
@@ -2756,7 +2764,7 @@ function printPO(id){
         <div class="row"><span>ضريبة القيمة المضافة 15%</span><span class="mono">${fmt(vat)} ر.س</span></div>
         <div class="row grand"><span>الإجمالي شامل الضريبة</span><span class="mono">${fmt(gross)} ر.س</span></div>
       </div>
-      ${po.notes? `<div style="margin-top:10px;"><b>ملاحظات:</b> ${po.notes}</div>` : ''}
+      ${po.notes? `<div style="margin-top:10px;"><b>ملاحظات:</b> ${esc(po.notes)}</div>` : ''}
       <div class="po-doc-sign">
         <div><div class="sign-line"></div><div>توقيع مسؤول المشتريات</div></div>
         <div><div class="sign-line"></div><div>توقيع المورد</div></div>
@@ -2781,7 +2789,7 @@ function renderCompare(){
     <div class="toolbar">
       <select id="compareMatSelect" onchange="renderCompareTable()">
         <option value="">اختر مادة...</option>
-        ${DB.materials.map(m=>`<option value="${m.id}">${m.name_ar}</option>`).join('')}
+        ${DB.materials.map(m=>`<option value="${m.id}">${esc(m.name_ar)}</option>`).join('')}
       </select>
     </div>
     <div class="card"><div class="table-scroll" id="compareTableWrap"><div class="small-muted">اختر مادة لعرض المقارنة</div></div></div>
@@ -2802,11 +2810,11 @@ function renderCompareTable(){
         ${latest.sort((a,b)=>a.price-b.price).map(p=>{
           const s = DB.suppliers.find(x=>x.id===p.supplier_id);
           return `<tr>
-            <td>${s?s.name:'—'} ${Number(p.price)===min?'<span class="pill ok">الأقل</span>':''}</td>
+            <td>${s?esc(s.name):'—'} ${Number(p.price)===min?'<span class="pill ok">الأقل</span>':''}</td>
             <td class="mono">${fmt(p.price)}</td>
             <td>${p.includes_transport?'نعم':'لا'}</td>
             <td>${p.includes_vat?'نعم':'لا'}</td>
-            <td class="mono">${p.price_date}</td>
+            <td class="mono">${esc(p.price_date)}</td>
             <td><button class="btn sm secondary" onclick="showHistoryFor('${matId}')">السجل التاريخي</button></td>
           </tr>`;
         }).join('')}
@@ -2884,8 +2892,8 @@ function runGlobalSearch(){
       ${mats.slice(0,40).map(m=>{
         const lp = latestPricesPerSupplier(m.id);
         const min = lp.length? Math.min(...lp.map(p=>Number(p.price))) : null;
-        return `<tr><td class="mono">${m.code}</td><td>${m.name_ar}</td>
-          <td><span class="badge-cat">${m.category}</span></td><td>${m.unit}</td>
+        return `<tr><td class="mono">${esc(m.code)}</td><td>${esc(m.name_ar)}</td>
+          <td><span class="badge-cat">${esc(m.category)}</span></td><td>${esc(m.unit)}</td>
           <td class="mono">${min!==null? fmt(min):'—'}</td><td class="mono">${lp.length}</td>
           <td><button class="btn sm secondary" onclick="jumpToCompare('${m.id}')">مقارنة الموردين</button></td></tr>`;
       }).join('')}
@@ -2898,8 +2906,8 @@ function runGlobalSearch(){
       <thead><tr><th>الكود</th><th>اسم المورد</th><th>النوع</th><th>التواصل</th><th>عدد الأسعار المسجلة</th></tr></thead><tbody>
       ${sups.slice(0,30).map(s=>{
         const cnt = DB.prices.filter(p=>p.supplier_id===s.id).length;
-        return `<tr><td class="mono">${s.code}</td><td>${s.name}</td>
-          <td><span class="badge-cat">${s.type}</span></td><td class="small-muted">${s.phone||'-'}</td>
+        return `<tr><td class="mono">${esc(s.code)}</td><td>${esc(s.name)}</td>
+          <td><span class="badge-cat">${esc(s.type)}</span></td><td class="small-muted">${s.phone?esc(s.phone):'-'}</td>
           <td class="mono">${cnt}</td></tr>`;
       }).join('')}
       </tbody></table></div></div>`;
@@ -2912,9 +2920,9 @@ function runGlobalSearch(){
       ${prices.map(p=>{
         const m = DB.materials.find(x=>x.id===p.material_id);
         const s = DB.suppliers.find(x=>x.id===p.supplier_id);
-        return `<tr><td class="mono">${p.price_date}</td><td>${m?m.name_ar:'—'}</td><td>${s?s.name:'—'}</td>
-          <td class="mono">${fmt(p.price)}</td><td>${p.unit}</td><td>${p.includes_vat?'✔️':'—'}</td>
-          <td class="small-muted">${p.quote_ref||'-'}</td></tr>`;
+        return `<tr><td class="mono">${esc(p.price_date)}</td><td>${m?esc(m.name_ar):'—'}</td><td>${s?esc(s.name):'—'}</td>
+          <td class="mono">${fmt(p.price)}</td><td>${esc(p.unit)}</td><td>${p.includes_vat?'✔️':'—'}</td>
+          <td class="small-muted">${p.quote_ref?esc(p.quote_ref):'-'}</td></tr>`;
       }).join('')}
       </tbody></table></div></div>`;
   }
@@ -2925,7 +2933,7 @@ function runGlobalSearch(){
       <thead><tr><th>الكود</th><th>المشروع</th><th>الموقع</th><th>إجمالي التكلفة</th></tr></thead><tbody>
       ${projs.map(p=>{
         const c = computeProjectCost(p.id);
-        return `<tr><td class="mono">${p.code}</td><td>${p.name}</td><td class="small-muted">${p.location||'-'}</td>
+        return `<tr><td class="mono">${esc(p.code)}</td><td>${esc(p.name)}</td><td class="small-muted">${p.location?esc(p.location):'-'}</td>
           <td class="mono">${fmt(c.finalTotal)}</td></tr>`;
       }).join('')}
       </tbody></table></div></div>`;
@@ -2938,8 +2946,8 @@ function runGlobalSearch(){
       ${pos.map(po=>{
         const s = DB.suppliers.find(x=>x.id===po.supplier_id);
         const pr = DB.projects.find(x=>x.id===po.project_id);
-        return `<tr><td class="mono">${po.po_number}</td><td>${s?s.name:'—'}</td><td>${pr?pr.name:'—'}</td>
-          <td class="mono">${po.order_date}</td><td class="mono">${fmt(poGrossOf(poTotal(po)))}</td><td>${po.status}</td></tr>`;
+        return `<tr><td class="mono">${esc(po.po_number)}</td><td>${s?esc(s.name):'—'}</td><td>${pr?esc(pr.name):'—'}</td>
+          <td class="mono">${esc(po.order_date)}</td><td class="mono">${fmt(poGrossOf(poTotal(po)))}</td><td>${esc(po.status)}</td></tr>`;
       }).join('')}
       </tbody></table></div></div>`;
   }
@@ -3089,7 +3097,7 @@ function renderReports(){
       <div class="toolbar">
         <select id="reportProjSelect" onchange="renderProjectCostReport()">
           <option value="">اختر مشروعاً...</option>
-          ${DB.projects.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}
+          ${DB.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}
         </select>
         <button class="btn sm secondary" onclick="window.print()">🖨️ طباعة</button>
         <button class="btn sm ghost" onclick="exportCsv('projectCostTable','تقرير_تكلفة_مشروع')">تصدير CSV</button>
@@ -3102,7 +3110,7 @@ function renderReports(){
       <div class="toolbar">
         <select id="reportMatSelect" onchange="renderMaterialHistoryReport()">
           <option value="">اختر مادة...</option>
-          ${DB.materials.map(m=>`<option value="${m.id}">${m.name_ar}</option>`).join('')}
+          ${DB.materials.map(m=>`<option value="${m.id}">${esc(m.name_ar)}</option>`).join('')}
         </select>
         <button class="btn sm ghost" onclick="exportCsv('matHistoryTable','تاريخ_أسعار_مادة')">تصدير CSV</button>
       </div>
@@ -3156,7 +3164,7 @@ function renderSupplierUsageReport(){
       <thead><tr><th>المورد</th><th>عدد المواد</th><th>سجلات الأسعار</th><th>الأقل سعراً في</th><th>أوامر الشراء</th><th>قيمة أوامر الشراء</th></tr></thead>
       <tbody>
         ${rows.length? rows.map(r=>`<tr>
-          <td>${r.s.name}</td>
+          <td>${esc(r.s.name)}</td>
           <td class="mono">${r.materials}</td>
           <td class="mono">${r.prices}</td>
           <td class="mono">${r.lowestCount} مادة</td>
@@ -3197,14 +3205,14 @@ function renderMaterialConsumptionReport(){
       <thead><tr><th>المادة</th><th>القسم</th><th>إجمالي الكمية</th><th>المستهلكة</th><th>المتبقي</th><th>الوحدة</th><th>إجمالي التكلفة</th><th>المشاريع</th></tr></thead>
       <tbody>
         ${rows.length? rows.map(r=>`<tr>
-          <td>${r.material.name_ar}</td>
-          <td><span class="badge-cat">${r.material.category}</span></td>
+          <td>${esc(r.material.name_ar)}</td>
+          <td><span class="badge-cat">${esc(r.material.category)}</span></td>
           <td class="mono">${fmt(r.qty)}</td>
           <td class="mono">${fmt(r.consumed)}</td>
           <td class="mono" style="${r.remaining<0?'color:#c0392b;font-weight:700;':''}">${fmt(r.remaining)}</td>
-          <td>${r.material.unit}</td>
+          <td>${esc(r.material.unit)}</td>
           <td class="mono">${fmt(r.cost)}</td>
-          <td class="small-muted">${r.projectNames.length? `(${r.projectNames.length}) ${r.projectNames.join('، ')}`:'—'}</td>
+          <td class="small-muted">${r.projectNames.length? `(${r.projectNames.length}) ${esc(r.projectNames.join('، '))}`:'—'}</td>
         </tr>`).join('') : `<tr class="empty-row"><td colspan="8">لا توجد كميات مسجلة في أي مشروع بعد</td></tr>`}
       </tbody>
     </table>
@@ -3218,15 +3226,15 @@ function renderProjectCostReport(){
   const project = DB.projects.find(p=>p.id===pid);
   const result = computeProjectCost(pid);
   wrap.innerHTML = `
-    <h3 style="margin-top:0;">${project.name} — تقرير تكلفة المواد</h3>
+    <h3 style="margin-top:0;">${esc(project.name)} — تقرير تكلفة المواد</h3>
     <div class="small-muted" style="margin-bottom:10px;">تاريخ التقرير: ${todayStr()} | مساحة البناء: ${fmt(project.built_area)} م²</div>
     <div class="table-scroll">
     <table id="projectCostTable">
       <thead><tr><th>المادة</th><th>القسم</th><th>الكمية</th><th>الوحدة</th><th>سعر الوحدة</th><th>الإجمالي</th></tr></thead>
       <tbody>
         ${result.lineItems.length? result.lineItems.map(li=>`
-          <tr><td>${li.material?li.material.name_ar:'—'}</td><td>${li.material?li.material.category:'—'}</td>
-          <td class="mono">${fmt(li.quantity)}</td><td>${li.unit}</td>
+          <tr><td>${li.material?esc(li.material.name_ar):'—'}</td><td>${li.material?esc(li.material.category):'—'}</td>
+          <td class="mono">${fmt(li.quantity)}</td><td>${esc(li.unit)}</td>
           <td class="mono">${fmt(li.unitPrice)}</td><td class="mono">${fmt(li.total)}</td></tr>`).join('')
           : `<tr class="empty-row"><td colspan="6">لا توجد بنود كميات لهذا المشروع</td></tr>`}
       </tbody>
@@ -3248,7 +3256,7 @@ function renderMaterialHistoryReport(){
   const mat = DB.materials.find(m=>m.id===mid);
   const hist = priceHistoryForMaterial(mid);
   wrap.innerHTML = `
-    <h3 style="margin-top:0;">${mat.name_ar} — تاريخ الأسعار</h3>
+    <h3 style="margin-top:0;">${esc(mat.name_ar)} — تاريخ الأسعار</h3>
     <div class="table-scroll">
     <table id="matHistoryTable">
       <thead><tr><th>التاريخ</th><th>المورد</th><th>السعر</th><th>نسبة التغير عن السابق</th></tr></thead>
@@ -3257,7 +3265,7 @@ function renderMaterialHistoryReport(){
           const prevSameSupplier = hist.slice(0,i).reverse().find(x=>x.supplier_id===p.supplier_id);
           const change = prevSameSupplier ? ((p.price-prevSameSupplier.price)/prevSameSupplier.price*100) : null;
           const s = DB.suppliers.find(x=>x.id===p.supplier_id);
-          return `<tr><td class="mono">${p.price_date}</td><td>${s?s.name:'—'}</td><td class="mono">${fmt(p.price)}</td>
+          return `<tr><td class="mono">${esc(p.price_date)}</td><td>${s?esc(s.name):'—'}</td><td class="mono">${fmt(p.price)}</td>
           <td class="mono" style="color:${change===null?'inherit':(change>0?'var(--red)':'var(--green)')}">${change===null?'—':(change>0?'+':'')+fmt(change)+'%'}</td></tr>`;
         }).join('') : `<tr class="empty-row"><td colspan="4">لا يوجد سجل أسعار لهذه المادة</td></tr>`}
       </tbody>
@@ -3273,7 +3281,7 @@ function renderCostM2Report(){
     <table>
       <thead><tr><th>المشروع</th><th>مساحة البناء</th><th>إجمالي التكلفة</th><th>تكلفة/م²</th></tr></thead>
       <tbody>
-        ${rows.length? rows.map(({p,c})=>`<tr><td>${p.name}</td><td class="mono">${fmt(p.built_area)}</td>
+        ${rows.length? rows.map(({p,c})=>`<tr><td>${esc(p.name)}</td><td class="mono">${fmt(p.built_area)}</td>
           <td class="mono">${fmt(c.finalTotal)}</td><td class="mono">${c.costPerM2?fmt(c.costPerM2):'-'}</td></tr>`).join('')
           : `<tr class="empty-row"><td colspan="4">لا توجد مشاريع بعد</td></tr>`}
       </tbody>
@@ -3284,10 +3292,12 @@ function renderCostM2Report(){
 function exportCsv(tableId, filename){
   const table = document.getElementById(tableId);
   if(!table){ toast('لا يوجد جدول لتصديره'); return; }
+  // a cell starting with = + - @ would run as a formula when opened in Excel
+  const cell = v => '"' + (/^[=+\-@\t\r]/.test(v) ? "'" + v : v).replace(/"/g,'""') + '"';
   let csv = [];
   table.querySelectorAll('tr').forEach(tr=>{
     let row = [];
-    tr.querySelectorAll('th,td').forEach(cell=> row.push('"'+cell.textContent.trim().replace(/"/g,'""')+'"'));
+    tr.querySelectorAll('th,td').forEach(td=> row.push(cell(td.textContent.trim())));
     csv.push(row.join(','));
   });
   const blob = new Blob(["\uFEFF"+csv.join('\n')], {type:'text/csv;charset=utf-8;'});
@@ -3353,7 +3363,7 @@ function renderUsersTable(){
           const isMe = String(u.email||'').toLowerCase()===CURRENT_USER_EMAIL;
           const lastAdmin = u.role==='admin' && !u.disabled && activeAdminsCount(i)===0;
           return `<tr>
-            <td class="mono">${u.email}${isMe?` <span class="pill info">أنت</span>`:''}</td>
+            <td class="mono">${esc(u.email)}${isMe?` <span class="pill info">أنت</span>`:''}</td>
             <td>
               <select onchange="setUserRole(${i}, this.value)" ${lastAdmin?'disabled title="لا يمكن تغيير دور آخر أدمن"':''}>
                 ${Object.keys(ROLE_LABELS).map(r=>`<option value="${r}" ${u.role===r?'selected':''}>${ROLE_LABELS[r]}</option>`).join('')}
@@ -3362,7 +3372,7 @@ function renderUsersTable(){
             <td>
               ${u.role==='engineer'?`<select onchange="setUserProject(${i}, this.value)">
                 <option value="">— اختر مشروعاً —</option>
-                ${DB.projects.map(p=>`<option value="${p.id}" ${u.project_id===p.id?'selected':''}>${p.name}</option>`).join('')}
+                ${DB.projects.map(p=>`<option value="${p.id}" ${u.project_id===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}
               </select>`:`<span class="small-muted">—</span>`}
             </td>
             <td>
@@ -3479,7 +3489,7 @@ function openUserForm(){
       <div class="field" id="f_uproj_field" style="display:none;"><label>المشروع*</label>
         <select id="f_uproj">
           <option value="">— اختر مشروعاً —</option>
-          ${DB.projects.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}
+          ${DB.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}
         </select>
       </div>
     </div>
