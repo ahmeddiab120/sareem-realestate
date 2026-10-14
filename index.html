@@ -3476,14 +3476,18 @@ async function resetUserPassword(i){
 }
 function openUserForm(){
   if(denyIf('manage_users')) return;
+  const assignable = Object.keys(ROLE_LABELS).filter(r=> r!=='pending');
   openModal(`
     <h3>إضافة مستخدم</h3>
-    <div class="modal-sub">اكتب البريد الإلكتروني للحساب المنشأ في Supabase ثم حدد دوره وصلاحياته</div>
+    <div class="modal-sub">هيتعمل حساب دخول جديد في النظام بالدور اللي تختاره، من غير ما تفتح Supabase</div>
     <div class="form-grid">
-      <div class="field full"><label>البريد الإلكتروني*</label><input id="f_uemail" type="email" placeholder="name@example.com"></div>
+      <div class="field full"><label>البريد الإلكتروني*</label><input id="f_uemail" type="email" placeholder="name@example.com" autocomplete="off"></div>
+      <div class="field full"><label>كلمة المرور*</label><input id="f_upass" type="text" placeholder="8 حروف على الأقل" autocomplete="new-password" dir="ltr">
+        <div class="small-muted" style="margin-top:4px;">اكتبها بنفسك وابعتهالها في رسالة — أول ما يدخل يغيرها من "إعادة تعيين كلمة المرور".</div>
+      </div>
       <div class="field"><label>الدور*</label>
         <select id="f_urole" onchange="document.getElementById('f_uproj_field').style.display = this.value==='engineer'?'':'none';">
-          ${Object.keys(ROLE_LABELS).map(r=>`<option value="${r}" ${r==='data_entry'?'selected':''}>${ROLE_LABELS[r]}</option>`).join('')}
+          ${assignable.map(r=>`<option value="${r}" ${r==='data_entry'?'selected':''}>${ROLE_LABELS[r]}</option>`).join('')}
         </select>
       </div>
       <div class="field" id="f_uproj_field" style="display:none;"><label>المشروع*</label>
@@ -3494,27 +3498,46 @@ function openUserForm(){
       </div>
     </div>
     <div class="modal-actions">
-      <button class="btn" onclick="addUser()">إضافة</button>
+      <button class="btn" id="addUserBtn" onclick="addUser()">إضافة</button>
       <button class="btn ghost" onclick="closeModal()">إلغاء</button>
     </div>
   `);
 }
+const CREATE_USER_FN = SUPABASE_URL + '/functions/v1/create-user';
 async function addUser(){
   if(denyIf('manage_users')) return;
   const email = String(document.getElementById('f_uemail').value||'').trim().toLowerCase();
+  const password = String(document.getElementById('f_upass').value||'');
   const role = document.getElementById('f_urole').value;
   const projectId = document.getElementById('f_uproj').value || null;
   if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ toast('اكتب بريداً إلكترونياً صحيحاً'); return; }
+  if(password && password.length < 8){ toast('كلمة المرور لازم تكون 8 حروف على الأقل'); return; }
   if(role==='engineer' && !projectId){ toast('اختر المشروع الخاص بمهندس الموقع'); return; }
-  if((DB.user_roles||[]).some(u=> String(u.email||'').toLowerCase()===email)){ toast('هذا البريد مضاف بالفعل'); return; }
+  if(!password && !(DB.user_roles||[]).some(u=> String(u.email||'').toLowerCase()===email)){
+    toast('اكتب كلمة مرور — الحساب ده لسه مش موجود'); return;
+  }
+  const btn = document.getElementById('addUserBtn');
+  if(btn){ btn.disabled = true; btn.textContent = 'جاري الإضافة…'; }
   try{
-    await supabaseFetch('user_roles', { method:'POST', body: JSON.stringify([{ email, role, project_id: role==='engineer'? projectId : null, disabled: false }]) });
+    const { data:{ session } } = await sb.auth.getSession();
+    const res = await fetch(CREATE_USER_FN, {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', 'apikey': SUPABASE_KEY, 'Authorization':'Bearer ' + ((session && session.access_token) || '') },
+      body: JSON.stringify({ email, password, role, project_id: role==='engineer'? projectId : null })
+    });
+    const txt = await res.text();
+    let out = null; try{ out = txt? JSON.parse(txt) : null; }catch(_){ out = null; }
+    if(!res.ok) throw new Error((out && out.error) || (txt? txt.slice(0,140) : 'HTTP ' + res.status));
     DB.user_roles = (await supabaseFetch('user_roles?select=*')) || [];
     closeModal();
-    toast('تمت إضافة المستخدم');
+    toast(out && out.created ? 'تم إنشاء المستخدم وتحديد دوره' : 'الحساب موجود بالفعل — تم تحديث دوره');
     renderUsersTable();
   }catch(e){
-    toast('تعذرت الإضافة: ' + (e && e.message ? e.message : e));
+    if(btn){ btn.disabled = false; btn.textContent = 'إضافة'; }
+    const m = String((e && e.message) || e);
+    toast(/Failed to fetch|fetch|404/i.test(m)
+      ? 'تعذّر الوصول لخدمة إضافة المستخدمين — تأكد إن Edge Function اسمها create-user منشورة'
+      : 'تعذرت الإضافة: ' + m.slice(0,150));
   }
 }
 
