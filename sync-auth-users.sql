@@ -5,7 +5,23 @@
 -- Direction: Supabase Auth  ->  public.user_roles (automatic).
 -- The browser can never read auth.users (that needs the secret
 -- service key), so the linking is done inside the database.
+--
+-- FIX included here: "Failed to create user: Database error
+-- creating new user" happened because the trigger below tried to
+-- write the role 'pending' into user_roles, and a user_roles table
+-- created by an EARLIER copy of user-roles.sql still carries the
+-- old check constraint that only allows
+-- admin/owner/engineer/data_entry. Step 0 repairs that constraint,
+-- and every trigger now swallows its own errors so that a problem
+-- in the roles table can never again block account creation.
 -- =============================================================
+
+-- 0) repair the role column: it must accept 'pending'
+alter table public.user_roles drop constraint if exists user_roles_role_check;
+alter table public.user_roles
+  add constraint user_roles_role_check
+  check (role in ('admin','owner','engineer','data_entry','pending'));
+alter table public.user_roles alter column role set default 'pending';
 
 -- 1) backfill: every account that already exists gets a row so it shows up now
 insert into public.user_roles (email, role)
@@ -24,6 +40,10 @@ begin
     values (lower(new.email), 'pending')
     on conflict (email) do nothing;
   end if;
+  return new;
+exception when others then
+  -- the site also registers itself on first login, so losing this row is
+  -- recoverable; blocking the account creation is not
   return new;
 end $$;
 
@@ -44,6 +64,8 @@ begin
     end if;
   end if;
   return new;
+exception when others then
+  return new;
 end $$;
 
 drop trigger if exists on_auth_user_email_roles on auth.users;
@@ -56,11 +78,24 @@ language plpgsql security definer set search_path = public as $$
 begin
   delete from public.user_roles where email = lower(old.email);
   return old;
+exception when others then
+  return old;
 end $$;
 
 drop trigger if exists on_auth_user_deleted_roles on auth.users;
 create trigger on_auth_user_deleted_roles after delete on auth.users
   for each row execute function public.handle_deleted_auth_user();
 
--- what you should see: every Supabase account, your own one still 'admin'
+-- 5) what the database actually looks like now.
+--    The constraint line must contain 'pending'.
+select
+  (select pg_get_constraintdef(c.oid)
+     from pg_constraint c
+    where c.conrelid = 'public.user_roles'::regclass and c.contype = 'c') as role_constraint,
+  (select string_agg(tgname, ', ' order by tgname)
+     from pg_trigger
+    where tgrelid = 'auth.users'::regclass and not tgisinternal)           as auth_users_triggers,
+  (select count(*) from auth.users)                                        as supabase_accounts,
+  (select count(*) from public.user_roles)                                 as rows_in_user_roles;
+
 select email, role, project_id, disabled from public.user_roles order by created_at;
