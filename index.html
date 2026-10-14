@@ -3428,7 +3428,7 @@ function renderUsersTable(){
             </td>
             <td>
               <button class="icon-btn" onclick="resetUserPassword(${i})" title="إرسال رابط إعادة تعيين كلمة المرور">🔑</button>
-              ${(!isMe&&!lastAdmin)?`<button class="icon-btn" onclick="deleteUser(${i})" title="حذف">🗑️</button>`:''}
+              ${(!isMe&&!lastAdmin)?`<button class="icon-btn" onclick="deleteUser(${i})" title="حذف نهائي — المستخدم وحسابه">🗑️</button>`:''}
             </td>
           </tr>`;
         }).join('') : `<tr class="empty-row"><td colspan="5">لا يوجد مستخدمون بعد — أضف أول مستخدم</td></tr>`}
@@ -3490,20 +3490,35 @@ async function setUserEnabled(i, enabled){
   const ok = await patchUser(i, { disabled: !enabled });
   if(ok) toast(enabled?'تم تفعيل المستخدم':'تم إيقاف المستخدم');
 }
+const DELETE_USER_FN = SUPABASE_URL + '/functions/v1/delete-user';
 async function deleteUser(i){
   if(denyIf('manage_users')) return;
   const u = (DB.user_roles||[])[i];
   if(!u) return;
-  if(String(u.email||'').toLowerCase()===CURRENT_USER_EMAIL){ toast('لا يمكنك حذف حسابك'); return; }
+  const email = String(u.email||'').trim().toLowerCase();
+  if(email===CURRENT_USER_EMAIL){ toast('لا يمكنك حذف حسابك'); return; }
   if(u.role==='admin' && activeAdminsCount(i)===0){ toast('لا يمكن حذف آخر أدمن'); return; }
-  if(!(await askConfirm(`حذف ${u.email} من قائمة المستخدمين؟ الحساب نفسه يبقى في Supabase.`))) return;
+  if(!(await askConfirm(`حذف ${email} نهائياً؟ هيتقفل حسابه في النظام ويختفي من قائمة المستخدمين، ومش هيقدر يدخل تاني.`))) return;
   try{
-    await supabaseFetch(`user_roles?email=eq.${encodeURIComponent(u.email)}`, { method:'DELETE' });
+    const { data:{ session } } = await sb.auth.getSession();
+    const res = await fetch(DELETE_USER_FN, {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', 'apikey': SUPABASE_KEY, 'Authorization':'Bearer ' + ((session && session.access_token) || '') },
+      body: JSON.stringify({ email })
+    });
+    const txt = await res.text();
+    let out = null; try{ out = txt? JSON.parse(txt) : null; }catch(_){ out = null; }
+    if(!res.ok) throw new Error((out && out.error) || (txt? txt.slice(0,140) : 'HTTP ' + res.status));
     DB.user_roles = (await supabaseFetch('user_roles?select=*')) || [];
-    toast('تم الحذف');
+    toast(out && out.account_deleted
+      ? 'تم حذف المستخدم وحسابه نهائياً'
+      : 'تم حذف المستخدم من القائمة — ما كانش له حساب دخول أصلاً');
     renderUsersTable();
   }catch(e){
-    toast('تعذر الحذف: ' + (e && e.message ? e.message : e));
+    const m = String((e && e.message) || e);
+    toast(/Failed to fetch|fetch|404/i.test(m)
+      ? 'تعذّر الوصول لخدمة حذف المستخدمين — تأكد إن Edge Function اسمها delete-user منشورة'
+      : 'تعذر الحذف: ' + m.slice(0,150));
   }
 }
 async function resetUserPassword(i){
