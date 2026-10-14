@@ -3610,10 +3610,12 @@ async function init(){
   buildPrintLetterhead();
   await loadAll();
   renderProjectSelector();
-  switchTab('dashboard');
+  appReady = true;
+  switchTab(_pfRecovery ? 'profile' : 'dashboard');
 }
 
 let appStarted = false;
+let appReady = false;
 
 function showLoginError(msg){
   const el = document.getElementById('loginError');
@@ -3677,6 +3679,7 @@ async function startApp(){
   } catch (e) {
     if ((e && e.message) !== 'ACCOUNT_DISABLED') throw e;
     appStarted = false;
+    appReady = false;
     document.getElementById('userMenu').hidden = true;
     document.getElementById('loginGate').hidden = false;
     // signOut triggers a page reload, so the reason is carried across it
@@ -3706,14 +3709,13 @@ async function doLogout(){
 sb.auth.onAuthStateChange((event) => {
   if (event === 'SIGNED_OUT' && appStarted) location.reload();
   if (event === 'PASSWORD_RECOVERY') {
-    // the recovery link lands here already signed in; take the user straight to
-    // the password card instead of leaving him on the login screen
+    // the recovery link lands here already signed in; the flag makes init() open the
+    // password card instead of the dashboard, and the call below covers the case where
+    // the app had already finished starting before this event arrived
     _pfRecovery = true;
-    const openProfile = (tries) => {
-      if (document.getElementById('panel-profile')) { switchTab('profile'); return; }
-      if (tries > 0) setTimeout(()=> openProfile(tries - 1), 300);
-    };
-    startApp().then(()=> openProfile(20)).catch((e)=> console.error('recovery start failed', e));
+    startApp()
+      .then(()=>{ if (appReady) switchTab('profile'); })
+      .catch((e)=> console.error('recovery start failed', e));
   }
 });
 
