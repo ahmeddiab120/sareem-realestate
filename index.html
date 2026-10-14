@@ -1264,6 +1264,7 @@ async function setActiveProject(id){
    PROFILE (user_metadata on the Supabase auth user)
 ========================================================= */
 let _pfAvatar = '';
+let _pfRecovery = false;
 function goProfile(){
   setUserMenuOpen(false);
   switchTab('profile');
@@ -1364,6 +1365,24 @@ async function renderProfile(){
         <button type="button" class="btn" id="pfSave" onclick="saveProfile()">حفظ</button>
         <button type="button" class="btn ghost" onclick="renderProfile()">تراجع</button>
       </div>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0;font-size:15px;color:var(--brick-dark);">كلمة المرور</h3>
+      <div class="small-muted" style="margin-bottom:12px;">${_pfRecovery? 'وصلت هنا من رابط إعادة التعيين — اكتب كلمة المرور الجديدة وثبّتها':'غيّر كلمة مرور حسابك في أي وقت'}</div>
+      <div class="form-grid">
+        <div class="field full">
+          <label for="pfPass1">كلمة المرور الجديدة</label>
+          <input id="pfPass1" type="password" autocomplete="new-password" dir="ltr">
+        </div>
+        <div class="field full">
+          <label for="pfPass2">تأكيد كلمة المرور</label>
+          <input id="pfPass2" type="password" autocomplete="new-password" dir="ltr">
+        </div>
+      </div>
+      <div class="pf-msg" id="pfPassMsg" hidden></div>
+      <div class="modal-actions">
+        <button type="button" class="btn" id="pfPassSave" onclick="changePassword()">تحديث كلمة المرور</button>
+      </div>
     </div>`;
   _pfPreview();
   document.getElementById('pfAvatarFile').addEventListener('change', async (e) => {
@@ -1418,6 +1437,32 @@ async function saveProfile(){
   } catch (e) {
     console.error('saveProfile failed', e);
     _pfMsg(_pfErrText(e), 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function changePassword(){
+  const msgEl = document.getElementById('pfPassMsg');
+  const say = (text, kind)=>{ if(!msgEl) return; msgEl.textContent = text; msgEl.className = 'pf-msg' + (kind === 'err' ? ' err' : ''); msgEl.hidden = false; };
+  const p1 = document.getElementById('pfPass1').value;
+  const p2 = document.getElementById('pfPass2').value;
+  if (p1.length < 8) { say('كلمة المرور لازم تكون 8 حروف على الأقل', 'err'); return; }
+  if (p1 !== p2) { say('كلمتا المرور مش متطابقتين', 'err'); return; }
+  const btn = document.getElementById('pfPassSave');
+  btn.disabled = true;
+  say('جاري التحديث…', 'ok');
+  try {
+    const { error } = await sb.auth.updateUser({ password: p1 });
+    if (error) throw error;
+    _pfRecovery = false;
+    document.getElementById('pfPass1').value = '';
+    document.getElementById('pfPass2').value = '';
+    say('تم تغيير كلمة المرور', 'ok');
+    toast('تم تغيير كلمة المرور');
+  } catch (e) {
+    console.error('changePassword failed', e);
+    say(_pfErrText(e), 'err');
   } finally {
     btn.disabled = false;
   }
@@ -3660,6 +3705,16 @@ async function doLogout(){
 
 sb.auth.onAuthStateChange((event) => {
   if (event === 'SIGNED_OUT' && appStarted) location.reload();
+  if (event === 'PASSWORD_RECOVERY') {
+    // the recovery link lands here already signed in; take the user straight to
+    // the password card instead of leaving him on the login screen
+    _pfRecovery = true;
+    const openProfile = (tries) => {
+      if (document.getElementById('panel-profile')) { switchTab('profile'); return; }
+      if (tries > 0) setTimeout(()=> openProfile(tries - 1), 300);
+    };
+    startApp().then(()=> openProfile(20)).catch((e)=> console.error('recovery start failed', e));
+  }
 });
 
 (async function boot(){
