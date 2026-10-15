@@ -1085,7 +1085,7 @@ const ROLE_LABELS = {admin:'أدمن', owner:'مالك', engineer:'مهندس م
 const ROLE_TABS = {
   admin: ['dashboard','materials','suppliers','prices','projects','map','costing','po','compare','search','reports','audit','users'],
   owner: ['dashboard','materials','suppliers','prices','projects','map','costing','po','compare','search','reports'],
-  data_entry: ['dashboard','materials','suppliers','prices','projects','map','costing','po','search','audit'],
+  data_entry: ['dashboard','materials','suppliers','prices','projects','map','costing','po','search'],
   engineer: ['dashboard','materials','suppliers','prices','projects','map','costing','po','search','reports'],
   pending: ['dashboard'],
 };
@@ -1109,7 +1109,7 @@ const PERM_MATRIX = [
   ['مقارنة الموردين','✔️','✔️','❌','❌'],
   ['البحث الشامل','✔️','✔️','✔️','✔️'],
   ['التقارير والطباعة وتصدير CSV','✔️','✔️','❌','مشروعه'],
-  ['سجل التغييرات — مشاهدة','✔️','❌','✔️','❌'],
+  ['سجل التغييرات — مشاهدة','✔️','❌','❌','❌'],
   ['نسخة احتياطية (تصدير كل البيانات)','✔️','❌','✔️','❌'],
   ['استعادة نسخة احتياطية','✔️','❌','✔️','❌'],
   ['إدارة المستخدمين والأدوار','✔️','❌','❌','❌'],
@@ -3815,8 +3815,8 @@ function setAuditFilter(key, val){
 function renderAudit(){
   const el = document.getElementById('panel-audit');
   if(!el) return;
-  if(CURRENT_ROLE!=='admin' && CURRENT_ROLE!=='data_entry'){
-    el.innerHTML = `<div class="card"><div class="empty-row" style="text-align:center;padding:30px;">هذه الصفحة للأدمن ومدخل البيانات فقط</div></div>`;
+  if(CURRENT_ROLE!=='admin'){
+    el.innerHTML = `<div class="card"><div class="empty-row" style="text-align:center;padding:30px;">هذه الصفحة للأدمن فقط</div></div>`;
     return;
   }
   const f = AUDIT_FILTERS;

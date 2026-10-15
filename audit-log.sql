@@ -36,7 +36,7 @@ grant  select on public.audit_log to authenticated;
 
 drop policy if exists sel_audit on public.audit_log;
 create policy sel_audit on public.audit_log for select to authenticated
-  using (public.role_in('admin','data_entry'));
+  using (public.is_admin());
 
 -- ---------- capture trigger ----------
 create or replace function public.audit_capture() returns trigger
