@@ -1085,10 +1085,10 @@ const PERM_MATRIX = [
   ['لوحة التحكم (نظرة عامة)','✔️','✔️','✔️','✔️'],
   ['المواد / الموردين / الأسعار — مشاهدة','✔️','✔️','✔️','✔️'],
   ['المواد / الموردين / الأسعار — إضافة وتعديل','✔️','❌','✔️','❌'],
-  ['حذف مادة أو مورد أو سجل سعر','✔️','❌','❌','❌'],
+  ['حذف مادة أو مورد أو سجل سعر','✔️','❌','✔️','❌'],
   ['المشاريع — مشاهدة','✔️','كلها','كلها','مشروعه'],
   ['المشاريع — إضافة وتعديل','✔️','❌','✔️','❌'],
-  ['حذف مشروع','✔️','❌','❌','❌'],
+  ['حذف مشروع','✔️','❌','✔️','❌'],
   ['خريطة المشاريع','✔️','✔️','✔️','مشروعه'],
   ['كميات وتكلفة المشروع — مشاهدة','✔️','✔️','✔️','مشروعه'],
   ['كميات وتكلفة المشروع — إضافة وتعديل وحذف بنود','✔️','❌','✔️','❌'],
@@ -1105,7 +1105,7 @@ const PERM_MATRIX = [
 ];
 function can(perm){
   if (CURRENT_ROLE === 'admin') return true;
-  if (CURRENT_ROLE === 'data_entry') return ['edit_master','edit_projects','edit_quantities','edit_po','export','restore'].includes(perm);
+  if (CURRENT_ROLE === 'data_entry') return ['edit_master','edit_projects','edit_quantities','edit_po','export','restore','delete_any'].includes(perm);
   if (CURRENT_ROLE === 'engineer') return ['edit_po','reports'].includes(perm);
   if (CURRENT_ROLE === 'owner') return ['reports'].includes(perm);
   return false;
