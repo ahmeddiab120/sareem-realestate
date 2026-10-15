@@ -958,7 +958,6 @@ if (!window.storage) {
       <button type="submit" class="btn" id="rcSave">تحديث كلمة المرور</button>
     </form>
     <div class="login-busy" id="rcBusy" hidden>جارٍ التحديث…</div>
-    <button type="button" class="btn ghost" onclick="cancelRecovery()" style="margin-top:10px;width:100%;">إلغاء — هذا الرابط ليس لي</button>
   </div>
 </div>
 
@@ -4090,12 +4089,6 @@ async function changeRecoveryPassword(){
     btn.disabled = false;
     busy.hidden = true;
   }
-}
-
-async function cancelRecovery(){
-  sessionStorage.removeItem('sareemRecovery');
-  await sb.auth.signOut();
-  location.reload();
 }
 
 (async function boot(){
