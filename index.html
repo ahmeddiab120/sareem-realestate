@@ -928,7 +928,7 @@ if (!window.storage) {
       </div>
       <button type="submit" class="btn" id="loginBtn">تسجيل الدخول</button>
     </form>
-    <div class="login-busy" id="loginBusy" hidden>جاري التحقق…</div>
+    <div class="login-busy" id="loginBusy" hidden>جارٍ التحقق…</div>
   </div>
 </div>
 
@@ -949,8 +949,8 @@ if (!window.storage) {
       </div>
       <button type="submit" class="btn" id="rcSave">تحديث كلمة المرور</button>
     </form>
-    <div class="login-busy" id="rcBusy" hidden>جاري التحديث…</div>
-    <button type="button" class="btn ghost" onclick="cancelRecovery()" style="margin-top:10px;width:100%;">إلغاء — الرابط مش ليا</button>
+    <div class="login-busy" id="rcBusy" hidden>جارٍ التحديث…</div>
+    <button type="button" class="btn ghost" onclick="cancelRecovery()" style="margin-top:10px;width:100%;">إلغاء — هذا الرابط ليس لي</button>
   </div>
 </div>
 
@@ -1346,7 +1346,7 @@ function removeProfileAvatar(){
 }
 async function renderProfile(){
   const box = document.getElementById('panel-profile');
-  box.innerHTML = '<div class="card">جاري التحميل…</div>';
+  box.innerHTML = '<div class="card">جارٍ التحميل…</div>';
   const { data:{ user } } = await sb.auth.getUser();
   const md = (user && user.user_metadata) || {};
   _pfAvatar = md.avatar || '';
@@ -1426,9 +1426,9 @@ async function renderProfile(){
 }
 function _pfErrText(e){
   const m = (e && e.message) || '';
-  if (/already been registered|already registered/i.test(m)) return 'البريد ده مسجّل لحساب تاني';
+  if (/already been registered|already registered/i.test(m)) return 'هذا البريد مسجَّل لحساب آخر';
   if (/invalid email|unable to validate email/i.test(m)) return 'صيغة البريد الإلكتروني غير صحيحة';
-  if (/rate limit|too many requests/i.test(m)) return 'محاولات كتير جداً — استنى دقيقة وجرّب تاني';
+  if (/rate limit|too many requests/i.test(m)) return 'محاولات كثيرة جداً — انتظر دقيقة ثم حاول مجدداً';
   if (/failed to fetch|network/i.test(m)) return 'تعذّر الاتصال بالخادم — تأكد من اتصال الإنترنت';
   return 'تعذّر الحفظ: ' + m;
 }
@@ -1447,13 +1447,13 @@ async function saveProfile(){
     return;
   }
   btn.disabled = true;
-  _pfMsg('جاري الحفظ…', 'ok');
+  _pfMsg('جارٍ الحفظ…', 'ok');
   try {
     let note = '';
     if (emailChanged) {
       const r2 = await sb.auth.updateUser({ email });
       if (r2.error) throw r2.error;
-      note = ' — وتم إرسال رابط تأكيد للبريد الجديد، التغيير يتم بعد ما تأكد عليه.';
+      note = ' — وتم إرسال رابط تأكيد إلى البريد الجديد، ويُعتمد التغيير بعد تأكيده.';
     }
     const r1 = await sb.auth.updateUser({ data: { first_name: first, last_name: last, phone, avatar: _pfAvatar } });
     if (r1.error) throw r1.error;
@@ -1474,10 +1474,10 @@ async function changePassword(){
   const p1 = document.getElementById('pfPass1').value;
   const p2 = document.getElementById('pfPass2').value;
   if (p1.length < 8) { say('كلمة المرور لازم تكون 8 حروف على الأقل', 'err'); return; }
-  if (p1 !== p2) { say('كلمتا المرور مش متطابقتين', 'err'); return; }
+  if (p1 !== p2) { say('كلمتا المرور غير متطابقتين', 'err'); return; }
   const btn = document.getElementById('pfPassSave');
   btn.disabled = true;
-  say('جاري التحديث…', 'ok');
+  say('جارٍ التحديث…', 'ok');
   try {
     const { error } = await sb.auth.updateUser({ password: p1 });
     if (error) throw error;
@@ -2314,7 +2314,7 @@ function renderMap(){
     <div class="section-title">
       <div><h2>خريطة المشاريع</h2><div class="desc">أي مشروع تُدخل له إحداثيات (خط عرض/طول) في بياناته يظهر تلقائيًا كعلامة على الخريطة — أضفها من تبويب المشاريع → تعديل</div></div>
     </div>
-    <div class="card" id="mapStatus"><div class="small-muted">جاري تحميل مكتبة الخريطة…</div></div>
+    <div class="card" id="mapStatus"><div class="small-muted">جارٍ تحميل مكتبة الخريطة…</div></div>
   `;
   ensureLeaflet().then(()=>{
     if(CURRENT_TAB!=='map') return;
@@ -3411,8 +3411,8 @@ function renderUsers(){
           </table>
         </div>
         <div class="small-muted" style="margin-top:10px;line-height:1.9;">
-          • «مشروعه» = مهندس الموقع مربوط بمشروع واحد تحدده له من القائمة، ومش بيشوف أي مشروع غيره.<br>
-          • الحساب الجديد اللي لسه ما حددتوش دوره بيظهر بدور «في انتظار تحديد الدور» ومش بيشوف غير لوحة التحكم.<br>
+          • «مشروعه» = مهندس الموقع مرتبط بمشروع واحد تحدده له من القائمة، ولا يطّلع على أي مشروع غيره.<br>
+          • الحساب الجديد الذي لم يُحدَّد دوره بعد يظهر بدور «في انتظار تحديد الدور» ولا يطّلع إلا على لوحة التحكم.<br>
           • مدخل البيانات ما يقدرش يحذف أي صف من الموقع — صلاحية الحذف في الواجهة للأدمن فقط.
         </div>
       </details>
@@ -3486,7 +3486,7 @@ async function setUserRole(i, role){
   const ok = await patchUser(i, { role, project_id: role==='engineer' ? (u.project_id||null) : null });
   if(!ok) return;
   if(String(u.email||'').toLowerCase()===CURRENT_USER_EMAIL){
-    toast('تم تغيير دورك — جاري تحديث الصلاحيات');
+    toast('تم تغيير دورك — جارٍ تحديث الصلاحيات');
     await init();
     return;
   }
@@ -3523,7 +3523,7 @@ async function deleteUser(i){
   const email = String(u.email||'').trim().toLowerCase();
   if(email===CURRENT_USER_EMAIL){ toast('لا يمكنك حذف حسابك'); return; }
   if(u.role==='admin' && activeAdminsCount(i)===0){ toast('لا يمكن حذف آخر أدمن'); return; }
-  if(!(await askConfirm(`حذف ${email} نهائياً؟ هيتقفل حسابه في النظام ويختفي من قائمة المستخدمين، ومش هيقدر يدخل تاني.`))) return;
+  if(!(await askConfirm(`حذف ${email} نهائياً؟ سيُغلق حسابه في النظام ويُحذف من قائمة المستخدمين، ولن يتمكن من الدخول مجدداً.`))) return;
   try{
     const { data:{ session } } = await sb.auth.getSession();
     const res = await fetch(DELETE_USER_FN, {
@@ -3542,7 +3542,7 @@ async function deleteUser(i){
   }catch(e){
     const m = String((e && e.message) || e);
     toast(/Failed to fetch|fetch|404/i.test(m)
-      ? 'تعذّر الوصول لخدمة حذف المستخدمين — تأكد إن Edge Function اسمها delete-user منشورة'
+      ? 'تعذّر الوصول إلى خدمة حذف المستخدمين — تأكد من نشر Edge Function باسم delete-user'
       : 'تعذر الحذف: ' + m.slice(0,150));
   }
 }
@@ -3564,11 +3564,11 @@ function openUserForm(){
   const assignable = Object.keys(ROLE_LABELS).filter(r=> r!=='pending');
   openModal(`
     <h3>إضافة مستخدم</h3>
-    <div class="modal-sub">هيتعمل حساب دخول جديد في النظام بالدور اللي تختاره، من غير ما تفتح Supabase</div>
+    <div class="modal-sub">سيُنشأ حساب دخول جديد في النظام بالدور الذي تختاره، دون الحاجة إلى فتح Supabase</div>
     <div class="form-grid">
       <div class="field full"><label>البريد الإلكتروني*</label><input id="f_uemail" type="email" placeholder="name@example.com" autocomplete="off"></div>
       <div class="field full"><label>كلمة المرور*</label><input id="f_upass" type="text" placeholder="8 حروف على الأقل" autocomplete="new-password" dir="ltr">
-        <div class="small-muted" style="margin-top:4px;">اكتبها بنفسك وابعتهالها في رسالة — أول ما يدخل يغيرها من "إعادة تعيين كلمة المرور".</div>
+        <div class="small-muted" style="margin-top:4px;">اكتبها بنفسك وأرسلها إليه في رسالة — وعند أول دخول له يمكنه تغييرها من "إعادة تعيين كلمة المرور".</div>
       </div>
       <div class="field"><label>الدور*</label>
         <select id="f_urole" onchange="document.getElementById('f_uproj_field').style.display = this.value==='engineer'?'':'none';">
@@ -3599,10 +3599,10 @@ async function addUser(){
   if(password && password.length < 8){ toast('كلمة المرور لازم تكون 8 حروف على الأقل'); return; }
   if(role==='engineer' && !projectId){ toast('اختر المشروع الخاص بمهندس الموقع'); return; }
   if(!password && !(DB.user_roles||[]).some(u=> String(u.email||'').toLowerCase()===email)){
-    toast('اكتب كلمة مرور — الحساب ده لسه مش موجود'); return;
+    toast('أدخل كلمة مرور — هذا الحساب غير موجود بعد'); return;
   }
   const btn = document.getElementById('addUserBtn');
-  if(btn){ btn.disabled = true; btn.textContent = 'جاري الإضافة…'; }
+  if(btn){ btn.disabled = true; btn.textContent = 'جارٍ الإضافة…'; }
   try{
     const { data:{ session } } = await sb.auth.getSession();
     const res = await fetch(CREATE_USER_FN, {
@@ -3621,7 +3621,7 @@ async function addUser(){
     if(btn){ btn.disabled = false; btn.textContent = 'إضافة'; }
     const m = String((e && e.message) || e);
     toast(/Failed to fetch|fetch|404/i.test(m)
-      ? 'تعذّر الوصول لخدمة إضافة المستخدمين — تأكد إن Edge Function اسمها create-user منشورة'
+      ? 'تعذّر الوصول إلى خدمة إضافة المستخدمين — تأكد من نشر Edge Function باسم create-user'
       : 'تعذرت الإضافة: ' + m.slice(0,150));
   }
 }
@@ -3665,8 +3665,8 @@ function showLoginError(msg){
 function translateAuthError(err){
   const m = (err && err.message) || '';
   if (/invalid login credentials/i.test(m)) return 'البريد الإلكتروني أو كلمة المرور غير صحيحة';
-  if (/email not confirmed/i.test(m)) return 'الحساب ده لسه ما اتفعّلش — راجع مسؤول النظام';
-  if (/rate limit|too many requests/i.test(m)) return 'محاولات كتير جداً — استنى دقيقة وجرّب تاني';
+  if (/email not confirmed/i.test(m)) return 'هذا الحساب غير مفعّل بعد — راجع مسؤول النظام';
+  if (/rate limit|too many requests/i.test(m)) return 'محاولات كثيرة جداً — انتظر دقيقة ثم حاول مجدداً';
   if (/failed to fetch|network/i.test(m)) return 'تعذّر الاتصال بالخادم — تأكد من اتصال الإنترنت';
   return 'تعذّر تسجيل الدخول: ' + m;
 }
@@ -3774,7 +3774,7 @@ async function changeRecoveryPassword(){
   const p1 = document.getElementById('rcPass1').value;
   const p2 = document.getElementById('rcPass2').value;
   if (p1.length < 8) { say('كلمة المرور لازم تكون 8 حروف على الأقل'); return; }
-  if (p1 !== p2) { say('كلمتا المرور مش متطابقتين'); return; }
+  if (p1 !== p2) { say('كلمتا المرور غير متطابقتين'); return; }
   btn.disabled = true;
   busy.hidden = false;
   msg.hidden = true;
