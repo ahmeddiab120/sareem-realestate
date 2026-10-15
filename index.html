@@ -1084,9 +1084,9 @@ let CURRENT_USER_EMAIL = '';
 let ROLES_TABLE_MISSING = false;
 const ROLE_LABELS = {admin:'أدمن', owner:'مالك', engineer:'مهندس موقع', data_entry:'مدخل بيانات', pending:'في انتظار تحديد الدور'};
 const ROLE_TABS = {
-  admin: ['dashboard','materials','suppliers','prices','projects','map','costing','po','compare','search','reports','users'],
+  admin: ['dashboard','materials','suppliers','prices','projects','map','costing','po','compare','search','reports','audit','users'],
   owner: ['dashboard','materials','suppliers','prices','projects','map','costing','po','compare','search','reports'],
-  data_entry: ['dashboard','materials','suppliers','prices','projects','map','costing','po','search'],
+  data_entry: ['dashboard','materials','suppliers','prices','projects','map','costing','po','search','audit'],
   engineer: ['dashboard','materials','suppliers','prices','projects','map','costing','po','search','reports'],
   pending: ['dashboard'],
 };
@@ -1110,6 +1110,7 @@ const PERM_MATRIX = [
   ['مقارنة الموردين','✔️','✔️','❌','❌'],
   ['البحث الشامل','✔️','✔️','✔️','✔️'],
   ['التقارير والطباعة وتصدير CSV','✔️','✔️','❌','مشروعه'],
+  ['سجل التغييرات — مشاهدة','✔️','❌','✔️','❌'],
   ['نسخة احتياطية (تصدير كل البيانات)','✔️','❌','✔️','❌'],
   ['استعادة نسخة احتياطية','✔️','❌','✔️','❌'],
   ['إدارة المستخدمين والأدوار','✔️','❌','❌','❌'],
@@ -1249,6 +1250,7 @@ const TABS = [
   {id:'compare', label:'مقارنة الموردين'},
   {id:'search', label:'البحث الشامل'},
   {id:'reports', label:'التقارير'},
+  {id:'audit', label:'سجل التغييرات'},
   {id:'users', label:'المستخدمون'},
 ];
 
@@ -1279,6 +1281,7 @@ function renderPanel(id){
   if(id==='compare') renderCompare();
   if(id==='search') renderSearch();
   if(id==='reports') renderReports();
+  if(id==='audit') renderAudit();
   if(id==='users') renderUsers();
   if(id==='profile') renderProfile();
 }
@@ -3749,6 +3752,158 @@ async function addUser(){
       ? 'تعذّر الوصول إلى خدمة إضافة المستخدمين — تأكد من نشر Edge Function باسم create-user'
       : 'تعذرت الإضافة: ' + m.slice(0,150));
   }
+}
+
+/* =========================================================
+   CHANGE LOG — سجل التغييرات
+========================================================= */
+const AUDIT_TABLES = [
+  {v:'prices', l:'أسعار المواد'},
+  {v:'project_quantities', l:'بنود الكميات'},
+  {v:'purchase_orders', l:'أوامر الشراء'},
+  {v:'project_contractors', l:'المقاولون'},
+];
+const AUDIT_ACTIONS = [{v:'insert', l:'إضافة'},{v:'update', l:'تعديل'},{v:'delete', l:'حذف'}];
+const AUDIT_TABLE_LABELS = {prices:'سعر مادة', project_quantities:'بند كمية', purchase_orders:'أمر شراء', project_contractors:'مقاول'};
+const AUDIT_ACTION_LABELS = {insert:'إضافة', update:'تعديل', delete:'حذف'};
+const AUDIT_FIELD_LABELS = {
+  material_id:'المادة', supplier_id:'المورد', selected_supplier_id:'المورد المحدد',
+  price:'السعر', price_date:'تاريخ السعر', unit:'الوحدة', quantity:'الكمية',
+  pricing_method:'طريقة التسعير', manual_price:'السعر اليدوي',
+  po_number:'رقم أمر الشراء', order_date:'تاريخ الأمر', expected_delivery_date:'التوريد المتوقع',
+  status:'الحالة', notes:'ملاحظات', items:'عدد بنود الأمر',
+  name:'الاسم', scope:'نطاق العمل', contract_value:'القيمة التعاقدية', project_id:'المشروع'
+};
+const AUDIT_NUMERIC_FIELDS = ['price','quantity','manual_price','contract_value'];
+let AUDIT_ROWS = [];
+let AUDIT_MISSING = false;
+const AUDIT_FILTERS = {table_name:'', action:'', project_id:'', from:'', to:''};
+
+function auditTime(ts){
+  const d = new Date(ts);
+  if(isNaN(d.getTime())) return '—';
+  const p = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function auditVal(field, val){
+  if(val===null || val===undefined || val==='') return '<span class="small-muted">فارغ</span>';
+  if(field==='material_id'){ const m = DB.materials.find(x=>x.id===val); return esc(m? m.name_ar : 'سجل محذوف'); }
+  if(field==='supplier_id' || field==='selected_supplier_id'){ const s = DB.suppliers.find(x=>x.id===val); return esc(s? s.name : 'سجل محذوف'); }
+  if(field==='project_id'){ const pr = DB.projects.find(x=>x.id===val); return esc(pr? pr.name : 'سجل محذوف'); }
+  if(field==='pricing_method'){ const pm = PRICING_METHODS.find(x=>x.v===val); return esc(pm? pm.l : String(val)); }
+  if(field==='items') return `${Number(val)||0} بند`;
+  if(AUDIT_NUMERIC_FIELDS.includes(field)) return `<span class="mono">${fmt(val)}</span>`;
+  return esc(String(val));
+}
+function auditChanges(row){
+  const ch = row.changes || {};
+  const keys = Object.keys(ch);
+  if(!keys.length) return `<span class="small-muted">${esc(AUDIT_ACTION_LABELS[row.action]||row.action||'')}</span>`;
+  const one = k => {
+    const c = ch[k] || {};
+    const label = esc(AUDIT_FIELD_LABELS[k] || k);
+    if(row.action==='insert') return `<div><b>${label}:</b> ${auditVal(k, c.to)}</div>`;
+    if(row.action==='delete') return `<div><b>${label}:</b> ${auditVal(k, c.from)}</div>`;
+    return `<div><b>${label}:</b> ${auditVal(k, c.from)} ← ${auditVal(k, c.to)}</div>`;
+  };
+  return keys.slice(0,6).map(one).join('')
+    + (keys.length>6 ? `<div class="small-muted">و ${keys.length-6} تغييرات أخرى</div>` : '');
+}
+function setAuditFilter(key, val){
+  AUDIT_FILTERS[key] = val;
+  loadAuditRows();
+}
+function renderAudit(){
+  const el = document.getElementById('panel-audit');
+  if(!el) return;
+  if(CURRENT_ROLE!=='admin' && CURRENT_ROLE!=='data_entry'){
+    el.innerHTML = `<div class="card"><div class="empty-row" style="text-align:center;padding:30px;">هذه الصفحة للأدمن ومدخل البيانات فقط</div></div>`;
+    return;
+  }
+  const f = AUDIT_FILTERS;
+  el.innerHTML = `
+    <div class="section-title">
+      <div><h2>سجل التغييرات</h2><div class="desc">كل إضافة أو تعديل أو حذف على الأسعار والكميات وأوامر الشراء والمقاولين — السجل للقراءة فقط ولا يمكن تعديله من الموقع</div></div>
+      <button class="btn sm" onclick="loadAuditRows(true)">تحديث</button>
+    </div>
+
+    <div class="card">
+      <div class="toolbar">
+        <select onchange="setAuditFilter('table_name', this.value)">
+          <option value="">كل الأنواع</option>
+          ${AUDIT_TABLES.map(t=>`<option value="${t.v}" ${f.table_name===t.v?'selected':''}>${t.l}</option>`).join('')}
+        </select>
+        <select onchange="setAuditFilter('action', this.value)">
+          <option value="">كل العمليات</option>
+          ${AUDIT_ACTIONS.map(a=>`<option value="${a.v}" ${f.action===a.v?'selected':''}>${a.l}</option>`).join('')}
+        </select>
+        <select onchange="setAuditFilter('project_id', this.value)">
+          <option value="">كل المشاريع</option>
+          ${DB.projects.map(p=>`<option value="${p.id}" ${f.project_id===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}
+        </select>
+        <label class="small-muted" style="margin:0;">من <input type="date" value="${f.from}" onchange="setAuditFilter('from', this.value)"></label>
+        <label class="small-muted" style="margin:0;">إلى <input type="date" value="${f.to}" onchange="setAuditFilter('to', this.value)"></label>
+        <button class="btn sm secondary" onclick="AUDIT_FILTERS.table_name='';AUDIT_FILTERS.action='';AUDIT_FILTERS.project_id='';AUDIT_FILTERS.from='';AUDIT_FILTERS.to='';renderAudit();">مسح الفلاتر</button>
+      </div>
+    </div>
+
+    <div class="card"><div class="table-scroll" id="auditTableWrap"><div class="small-muted">جارٍ التحميل…</div></div></div>
+  `;
+  loadAuditRows();
+}
+async function loadAuditRows(notify){
+  const wrap = document.getElementById('auditTableWrap');
+  if(!wrap) return;
+  if(!AUDIT_MISSING){
+    wrap.innerHTML = `<div class="small-muted">جارٍ التحميل…</div>`;
+    const f = AUDIT_FILTERS;
+    const q = ['select=*','order=ts.desc','limit=500'];
+    if(f.table_name) q.push(`table_name=eq.${encodeURIComponent(f.table_name)}`);
+    if(f.action) q.push(`action=eq.${encodeURIComponent(f.action)}`);
+    if(f.project_id) q.push(`project_id=eq.${encodeURIComponent(f.project_id)}`);
+    if(f.from) q.push(`ts=gte.${encodeURIComponent(f.from + 'T00:00:00')}`);
+    if(f.to) q.push(`ts=lte.${encodeURIComponent(f.to + 'T23:59:59')}`);
+    try{
+      AUDIT_ROWS = (await supabaseFetch(`audit_log?${q.join('&')}`)) || [];
+    }catch(e){
+      const m = String((e && e.message) || e);
+      AUDIT_MISSING = /404|PGRST205/i.test(m);
+      AUDIT_ROWS = [];
+      if(!AUDIT_MISSING) toast('تعذّر تحميل سجل التغييرات: ' + m.slice(0,150));
+    }
+  }
+  if(notify) toast('تم تحديث السجل');
+  renderAuditTable();
+}
+function renderAuditTable(){
+  const wrap = document.getElementById('auditTableWrap');
+  if(!wrap) return;
+  if(AUDIT_MISSING){
+    wrap.innerHTML = `<div class="empty-row" style="text-align:center;padding:30px;">جدول سجل التغييرات (audit_log) غير موجود بعد في قاعدة البيانات — نفّذ الملف audit-log.sql في Supabase ثم حدّث الصفحة</div>`;
+    return;
+  }
+  const rows = AUDIT_ROWS;
+  wrap.innerHTML = `
+    <table>
+      <thead><tr><th>الوقت</th><th>المستخدم</th><th>النوع</th><th>العملية</th><th>البند</th><th>التغيير</th><th>المشروع</th></tr></thead>
+      <tbody>
+        ${rows.length? rows.map(r=>{
+          const ur = (DB.user_roles||[]).find(u=> String(u.email||'').toLowerCase()===String(r.actor_email||'').toLowerCase());
+          const pr = DB.projects.find(p=>p.id===r.project_id);
+          return `<tr>
+            <td class="mono">${auditTime(r.ts)}</td>
+            <td class="mono">${r.actor_email? esc(r.actor_email) : '<span class="small-muted">غير معروف</span>'}${ur?` <span class="pill info">${esc(ROLE_LABELS[ur.role]||ur.role)}</span>`:''}</td>
+            <td><span class="badge-cat">${esc(AUDIT_TABLE_LABELS[r.table_name]||r.table_name||'')}</span></td>
+            <td>${esc(AUDIT_ACTION_LABELS[r.action]||r.action||'')}</td>
+            <td>${esc(r.item_label||'—')}</td>
+            <td>${auditChanges(r)}</td>
+            <td>${pr? esc(pr.name) : '—'}</td>
+          </tr>`;
+        }).join('') : `<tr class="empty-row"><td colspan="7">لا توجد عمليات مطابقة للفلاتر المختارة</td></tr>`}
+      </tbody>
+    </table>
+    <div class="small-muted" style="margin-top:8px;">المعروض ${rows.length} عملية — يعرض الموقع آخر 500 عملية كحد أقصى، استخدم الفلاتر للتضييق</div>
+  `;
 }
 
 /* =========================================================
