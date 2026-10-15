@@ -815,7 +815,8 @@ const TABLE_MAP = {
   'prices': 'prices',
   'projects': 'projects',
   'project_quantities': 'project_quantities',
-  'purchase_orders': 'purchase_orders'
+  'purchase_orders': 'purchase_orders',
+  'project_contractors': 'project_contractors'
 };
 
 async function authHeaders() {
@@ -1017,7 +1018,7 @@ const PRICING_METHODS = [
 /* =========================================================
    STATE + STORAGE
 ========================================================= */
-let DB = { materials:[], suppliers:[], prices:[], projects:[], project_quantities:{}, purchase_orders:[] };
+let DB = { materials:[], suppliers:[], prices:[], projects:[], project_quantities:{}, purchase_orders:[], project_contractors:[] };
 let ACTIVE_PROJECT_ID = null;
 let CURRENT_TAB = "dashboard";
 
@@ -1058,6 +1059,7 @@ async function persistAll(){
     saveKey('projects', DB.projects),
     saveKey('project_quantities', DB.project_quantities),
     saveKey('purchase_orders', DB.purchase_orders),
+    saveKey('project_contractors', DB.project_contractors),
   ]);
 }
 async function loadAll(){
@@ -1067,6 +1069,7 @@ async function loadAll(){
   DB.projects = await loadKey('projects', []);
   DB.project_quantities = await loadKey('project_quantities', {});
   DB.purchase_orders = await loadKey('purchase_orders', []);
+  DB.project_contractors = await loadKey('project_contractors', []);
   ACTIVE_PROJECT_ID = await loadKey('active_project_id', null);
   if(DB.projects.length && !DB.projects.find(p=>p.id===ACTIVE_PROJECT_ID)){
     ACTIVE_PROJECT_ID = DB.projects[0].id;
@@ -1099,6 +1102,8 @@ const PERM_MATRIX = [
   ['خريطة المشاريع','✔️','✔️','✔️','مشروعه'],
   ['كميات وتكلفة المشروع — مشاهدة','✔️','✔️','✔️','مشروعه'],
   ['كميات وتكلفة المشروع — إضافة وتعديل وحذف بنود','✔️','❌','✔️','❌'],
+  ['المقاولون — مشاهدة','✔️','✔️','✔️','مشروعه'],
+  ['المقاولون — إضافة وتعديل وحذف','✔️','❌','✔️','❌'],
   ['أوامر الشراء — مشاهدة','✔️','✔️','✔️','مشروعه'],
   ['أوامر الشراء — إضافة وتعديل وحذف','✔️','❌','✔️','مشروعه'],
   ['طباعة / تصدير أمر الشراء PDF','✔️','✔️','✔️','✔️'],
@@ -2262,11 +2267,12 @@ async function saveProject(id){
 }
 async function deleteProject(id){
   if(denyIf('delete_any')) return;
-  if(!(await askConfirm('حذف هذا المشروع وكل كمياته وأوامر الشراء المرتبطة به؟'))) return;
+  if(!(await askConfirm('حذف هذا المشروع وكل كمياته وأوامر الشراء والمقاولين المرتبطين به؟'))) return;
   DB.projects = DB.projects.filter(x=>x.id!==id);
   delete DB.project_quantities[id];
   DB.purchase_orders = DB.purchase_orders.filter(po=>po.project_id!==id);
-  await saveKey('project_quantities', DB.project_quantities); await saveKey('purchase_orders', DB.purchase_orders); await saveKey('projects', DB.projects);
+  DB.project_contractors = DB.project_contractors.filter(c=>c.project_id!==id);
+  await saveKey('project_quantities', DB.project_quantities); await saveKey('purchase_orders', DB.purchase_orders); await saveKey('project_contractors', DB.project_contractors); await saveKey('projects', DB.projects);
   if(ACTIVE_PROJECT_ID===id){ ACTIVE_PROJECT_ID = DB.projects.length? DB.projects[0].id : null; await saveKey('active_project_id', ACTIVE_PROJECT_ID); }
   toast('تم الحذف'); renderProjectsTable(); renderProjectSelector();
 }
@@ -2395,6 +2401,8 @@ function renderCosting(){
   ACTIVE_PROJECT_ID = project.id;
   const rows = getProjectQuantities(project.id);
   const result = computeProjectCost(project.id);
+  const contractors = DB.project_contractors.filter(c=>c.project_id===project.id);
+  const contractTotal = contractors.reduce((s,c)=> s + (Number(c.contract_value)||0), 0);
 
   el.innerHTML = `
     <div class="section-title">
@@ -2459,6 +2467,34 @@ function renderCosting(){
         </table>
         <div class="small-muted" style="margin-top:8px;">لتعديل نسب النقل/الهالك/الضريبة اذهب لتبويب المشاريع → تعديل المشروع</div>
       </div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+        <h3 style="margin:0;font-size:15px;color:var(--brick-dark);">المقاولون</h3>
+        ${can('edit_quantities')?`<button class="btn sm" onclick="openContractorForm('${project.id}')">+ إضافة مقاول</button>`:''}
+      </div>
+      <div class="table-scroll">
+      <table>
+        <thead><tr><th>اسم المقاول</th><th>نطاق العمل</th><th>القيمة التعاقدية</th><th></th></tr></thead>
+        <tbody>
+          ${contractors.length? contractors.map(c=>`<tr>
+            <td>${esc(c.name)}</td>
+            <td>${c.scope? esc(c.scope) : '—'}</td>
+            <td class="mono">${fmt(c.contract_value)}</td>
+            <td>
+              ${can('edit_quantities')?`<button class="icon-btn" onclick="openContractorForm('${project.id}','${c.id}')" title="تعديل">✏️</button>
+              <button class="icon-btn" onclick="deleteContractorRow('${project.id}','${c.id}')" title="حذف">🗑️</button>`:''}
+            </td>
+          </tr>`).join('') : `<tr class="empty-row"><td colspan="4">لا يوجد مقاولون مضافون لهذا المشروع بعد</td></tr>`}
+        </tbody>
+      </table>
+      </div>
+      ${contractors.length?`
+        <div class="divider"></div>
+        <div style="display:flex;justify-content:space-between;font-weight:800;">
+          <span>إجمالي القيم التعاقدية</span><span class="mono">${fmt(contractTotal)}</span>
+        </div>`:''}
     </div>
   `;
 }
@@ -2542,6 +2578,49 @@ async function deleteQtyRow(projectId, rowId){
   if(denyIf('edit_quantities')) return;
   DB.project_quantities[projectId] = (DB.project_quantities[projectId]||[]).filter(x=>x.id!==rowId);
   await saveKey('project_quantities', DB.project_quantities);
+  toast('تم الحذف'); renderCosting();
+}
+
+function openContractorForm(projectId, rowId){
+  if(denyIf('edit_quantities')) return;
+  const c = rowId ? DB.project_contractors.find(x=>x.id===rowId && x.project_id===projectId) : null;
+  openModal(`
+    <h3>${c?'تعديل مقاول':'إضافة مقاول'}</h3>
+    <div class="form-grid">
+      <div class="field full"><label>اسم المقاول*</label><input id="c_name" value="${esc(c?c.name:'')}"></div>
+      <div class="field full"><label>نطاق العمل</label><textarea id="c_scope">${esc(c?c.scope||'':'')}</textarea></div>
+      <div class="field full"><label>القيمة التعاقدية</label><input id="c_value" type="number" step="0.01" min="0" value="${esc(c&&c.contract_value!=null?c.contract_value:'')}"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="saveContractorRow('${projectId}','${c?c.id:''}')">${c?'حفظ التعديلات':'إضافة المقاول'}</button>
+      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+    </div>
+  `);
+}
+async function saveContractorRow(projectId, rowId){
+  if(denyIf('edit_quantities')) return;
+  const name = document.getElementById('c_name').value.trim();
+  if(!name){ toast('أدخل اسم المقاول'); return; }
+  const data = {
+    project_id: projectId,
+    name,
+    scope: document.getElementById('c_scope').value.trim(),
+    contract_value: Number(document.getElementById('c_value').value)||0,
+  };
+  if(rowId){
+    const idx = DB.project_contractors.findIndex(x=>x.id===rowId);
+    DB.project_contractors[idx] = {...DB.project_contractors[idx], ...data};
+  } else {
+    DB.project_contractors.push({id:uid('CT'), ...data});
+  }
+  await saveKey('project_contractors', DB.project_contractors);
+  closeModal(); toast('تم الحفظ'); renderCosting();
+}
+async function deleteContractorRow(projectId, rowId){
+  if(denyIf('edit_quantities')) return;
+  if(!(await askConfirm('حذف هذا المقاول من المشروع؟'))) return;
+  DB.project_contractors = DB.project_contractors.filter(x=>!(x.id===rowId && x.project_id===projectId));
+  await saveKey('project_contractors', DB.project_contractors);
   toast('تم الحذف'); renderCosting();
 }
 
@@ -3059,13 +3138,14 @@ function jumpToCompare(matId){
 async function exportBackup(){
   if(denyIf('export')) return;
   try{
-    const [materials, suppliers, prices, projects, project_quantities, purchase_orders] = await Promise.all([
+    const [materials, suppliers, prices, projects, project_quantities, purchase_orders, project_contractors] = await Promise.all([
       supabaseFetch('materials?select=*'),
       supabaseFetch('suppliers?select=*'),
       supabaseFetch('prices?select=*'),
       supabaseFetch('projects?select=*'),
       supabaseFetch('project_quantities?select=*'),
-      supabaseFetch('purchase_orders?select=*')
+      supabaseFetch('purchase_orders?select=*'),
+      supabaseFetch('project_contractors?select=*')
     ]);
     // Strip project_id from quantities for portability
     const quantitiesGrouped = {};
@@ -3076,10 +3156,11 @@ async function exportBackup(){
       quantitiesGrouped[pid].push(rest);
     }
     const payload = {
-      _meta: { app:'Material Cost Database', exported_at:new Date().toISOString(), version:2, backend:'supabase' },
+      _meta: { app:'Material Cost Database', exported_at:new Date().toISOString(), version:3, backend:'supabase' },
       materials, suppliers, prices, projects,
       project_quantities: quantitiesGrouped,
       purchase_orders,
+      project_contractors,
       active_project_id: ACTIVE_PROJECT_ID
     };
     const blob = new Blob([JSON.stringify(payload,null,2)], {type:'application/json;charset=utf-8;'});
@@ -3112,6 +3193,7 @@ async function triggerRestore(){
       const prices = Array.isArray(data.prices) ? data.prices : [];
       const projects = Array.isArray(data.projects) ? data.projects : [];
       const orders = Array.isArray(data.purchase_orders) ? data.purchase_orders : [];
+      const contractorRows = Array.isArray(data.project_contractors) ? data.project_contractors : [];
       let qtyRows = [];
       if (data.project_quantities && typeof data.project_quantities === 'object' && !Array.isArray(data.project_quantities)) {
         for (const [pid, items] of Object.entries(data.project_quantities)) {
@@ -3122,7 +3204,7 @@ async function triggerRestore(){
       } else if (Array.isArray(data.project_quantities)) {
         qtyRows = data.project_quantities;
       }
-      const ok = await askConfirm(`سيتم استبدال كل البيانات الحالية ببيانات النسخة الاحتياطية:<br>${data.materials.length} مادة، ${data.suppliers.length} مورد، ${prices.length} سعر، ${projects.length} مشروع، ${qtyRows.length} بند كميات، ${orders.length} أمر شراء.<br>هل تريد المتابعة؟`, 'استعادة نسخة احتياطية', 'نعم، استعد');
+      const ok = await askConfirm(`سيتم استبدال كل البيانات الحالية ببيانات النسخة الاحتياطية:<br>${data.materials.length} مادة، ${data.suppliers.length} مورد، ${prices.length} سعر، ${projects.length} مشروع، ${qtyRows.length} بند كميات، ${orders.length} أمر شراء، ${contractorRows.length} مقاول.<br>هل تريد المتابعة؟`, 'استعادة نسخة احتياطية', 'نعم، استعد');
       if(!ok) return;
 
       const wipeTable = async (table) => {
@@ -3148,6 +3230,7 @@ async function triggerRestore(){
       // wipe children before parents and refill parents first; ids are kept so cross-table relations survive
       await wipeTable('project_quantities');
       await wipeTable('purchase_orders');
+      await wipeTable('project_contractors');
       await wipeTable('prices');
       await wipeTable('projects');
       await wipeTable('suppliers');
@@ -3158,6 +3241,7 @@ async function triggerRestore(){
       await insertTable('prices', prices);
       await insertTable('project_quantities', qtyRows);
       await insertTable('purchase_orders', orders);
+      await insertTable('project_contractors', contractorRows);
 
       await loadAll();
       if (data.active_project_id && DB.projects.some(p=>p.id===data.active_project_id)) {
