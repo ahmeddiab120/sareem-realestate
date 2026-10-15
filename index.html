@@ -3438,6 +3438,7 @@ function renderProjectCostReport(){
     <table style="max-width:420px;">
       <tr><td>إجمالي تكلفة المواد</td><td class="mono" style="text-align:left;">${fmt(result.materialCost)}</td></tr>
       <tr><td>إجمالي الإضافات</td><td class="mono" style="text-align:left;">${fmt(result.extraTotal)}</td></tr>
+      <tr><td>إجمالي أعمال المقاولين</td><td class="mono" style="text-align:left;">${fmt(result.contractorCost)}</td></tr>
       <tr style="font-weight:800;"><td>الإجمالي النهائي</td><td class="mono" style="text-align:left;">${fmt(result.finalTotal)}</td></tr>
       <tr><td>تكلفة المتر المربع</td><td class="mono" style="text-align:left;">${result.costPerM2?fmt(result.costPerM2):'-'}</td></tr>
     </table>
