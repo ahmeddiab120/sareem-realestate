@@ -819,6 +819,31 @@ const TABLE_MAP = {
   'project_contractors': 'project_contractors'
 };
 
+// what the server held the last time each table was read, so a save can send
+// only the rows that really changed
+const ROW_SNAPSHOT = {};
+
+// jsonb comes back with its keys reordered, so a plain JSON.stringify of two
+// equal rows can differ — sort keys all the way down instead
+function stableValue(v){
+  if (Array.isArray(v)) return '[' + v.map(stableValue).join(',') + ']';
+  if (v && typeof v === 'object') {
+    return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + stableValue(v[k])).join(',') + '}';
+  }
+  return typeof v === 'number' ? String(v) : JSON.stringify(v);
+}
+function rowFingerprint(row){
+  if (!row || typeof row !== 'object') return String(row);
+  const parts = [];
+  for (const k of Object.keys(row).sort()) {
+    if (k === 'created_at' || k === 'updated_at') continue;
+    const v = row[k];
+    if (v === null || v === undefined) continue;
+    parts.push(k + '=' + stableValue(v));
+  }
+  return parts.join('|');
+}
+
 async function authHeaders() {
   const { data: { session } } = await sb.auth.getSession();
   return {
@@ -852,6 +877,7 @@ if (!window.storage) {
         const table = TABLE_MAP[key];
         if (!table) return null;
         const data = await supabaseFetch(`${table}?select=*`);
+        ROW_SNAPSHOT[table] = Array.isArray(data) ? data : [];
         if (key === 'project_quantities') {
           const grouped = {};
           for (const row of data) {
@@ -903,14 +929,28 @@ if (!window.storage) {
           for (const k of keySet) o[k] = k in r ? r[k] : null;
           return o;
         });
-        // upsert first, then delete only ids absent from the new set: a full wipe would
-        // violate foreign keys from child tables that still reference the surviving rows
-        if (rows.length > 0) {
+        // send only what actually changed: rewriting the whole table meant a save
+        // from a stale page deleted every row someone else had added meanwhile
+        const snap = ROW_SNAPSHOT[table];
+        if (Array.isArray(snap)) {
+          const before = new Map();
+          for (const r of snap) {
+            if (r && r.id !== undefined && r.id !== null) before.set(String(r.id), rowFingerprint(r));
+          }
+          const changed = rows.filter(r => before.get(String(r.id)) !== rowFingerprint(r));
+          const kept = new Set(rows.map(r => String(r.id)));
+          const removed = [...before.keys()].filter(id => !kept.has(id));
+          if (changed.length > 0) {
+            await supabaseFetch(table, { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates' }, body: JSON.stringify(changed) });
+          }
+          for (let i = 0; i < removed.length; i += 100) {
+            await supabaseFetch(`${table}?id=in.(${removed.slice(i, i + 100).join(',')})`, { method: 'DELETE' });
+          }
+        } else if (rows.length > 0) {
+          // nothing trusted to diff against (the load failed): write, never delete
           await supabaseFetch(table, { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates' }, body: JSON.stringify(rows) });
-          await supabaseFetch(`${table}?id=not.in.(${rows.map(r => r.id).join(',')})`, { method: 'DELETE' });
-        } else {
-          await supabaseFetch(`${table}?id=neq.00000000-0000-0000-0000-000000000000`, { method: 'DELETE' });
         }
+        ROW_SNAPSHOT[table] = rows;
       } catch (e) { throw e; }
     }
   };
