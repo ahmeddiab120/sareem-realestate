@@ -3721,6 +3721,7 @@ document.addEventListener('keydown', (e) => {
 async function startApp(){
   if (appStarted) return;
   appStarted = true;
+  startIdleWatch();
   document.getElementById('loginGate').hidden = true;
   await renderUserChip();
   document.getElementById('userMenu').hidden = false;
@@ -3751,8 +3752,26 @@ async function renderUserChip(){
 
 async function doLogout(){
   appStarted = false;
+  clearTimeout(_idleTimer);
   await sb.auth.signOut();
   location.reload();
+}
+
+// a session left open on a shared or forgotten device is an open door,
+// so half an hour without any touch of the page ends it
+const IDLE_LIMIT_MS = 30 * 60 * 1000;
+let _idleTimer = null;
+function armIdleTimer(){
+  clearTimeout(_idleTimer);
+  _idleTimer = setTimeout(()=>{
+    sessionStorage.setItem('sareemIdle', '1');
+    sb.auth.signOut();
+  }, IDLE_LIMIT_MS);
+}
+function startIdleWatch(){
+  ['pointerdown','keydown','touchstart','wheel'].forEach(ev=>
+    document.addEventListener(ev, armIdleTimer, { passive:true }));
+  armIdleTimer();
 }
 
 sb.auth.onAuthStateChange((event) => {
@@ -3823,6 +3842,13 @@ async function cancelRecovery(){
     note.textContent = 'تم تغيير كلمة المرور — سجّل دخول بالكلمة الجديدة';
     note.classList.add('ok');
     note.hidden = false;
+  }
+  if (sessionStorage.getItem('sareemIdle')) {
+    sessionStorage.removeItem('sareemIdle');
+    const idleNote = document.getElementById('loginError');
+    idleNote.textContent = 'تم تسجيل الخروج تلقائياً لعدم استخدام الموقع لفترة — سجّل دخول للمتابعة';
+    idleNote.classList.add('ok');
+    idleNote.hidden = false;
   }
   if (/type=recovery/.test(location.hash)) {
     sessionStorage.setItem('sareemRecovery', '1');
