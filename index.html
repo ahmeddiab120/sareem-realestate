@@ -1226,9 +1226,12 @@ function computeProjectCost(projectId){
     extra.other = Number(ec.other_amount)||0;
     extraTotal = extra.transport+extra.wastage+extra.vat+extra.other;
   }
-  const finalTotal = grand + extraTotal;
+  const contractorCost = DB.project_contractors
+    .filter(c=>c.project_id===projectId)
+    .reduce((s,c)=> s + (Number(c.contract_value)||0), 0);
+  const finalTotal = grand + extraTotal + contractorCost;
   const costPerM2 = (project && Number(project.built_area)>0) ? finalTotal/Number(project.built_area) : null;
-  return {lineItems, byCategory, materialCost:grand, extra, extraTotal, finalTotal, costPerM2};
+  return {lineItems, byCategory, materialCost:grand, extra, extraTotal, contractorCost, finalTotal, costPerM2};
 }
 
 /* =========================================================
@@ -2402,7 +2405,7 @@ function renderCosting(){
   const rows = getProjectQuantities(project.id);
   const result = computeProjectCost(project.id);
   const contractors = DB.project_contractors.filter(c=>c.project_id===project.id);
-  const contractTotal = contractors.reduce((s,c)=> s + (Number(c.contract_value)||0), 0);
+  const contractTotal = result.contractorCost;
 
   el.innerHTML = `
     <div class="section-title">
@@ -2444,31 +2447,6 @@ function renderCosting(){
       </div>
     </div>
 
-    <div class="two-col">
-      <div class="card">
-        <h3 style="margin-top:0;font-size:15px;color:var(--brick-dark);">التكلفة حسب القسم</h3>
-        ${Object.keys(result.byCategory).length? Object.entries(result.byCategory).sort((a,b)=>b[1]-a[1]).map(([cat,val])=>`
-          <div class="bar-row">
-            <div class="bar-label">${esc(cat)}</div>
-            <div class="bar-track"><div class="bar-fill" style="width:${Math.min(100,(val/Math.max(...Object.values(result.byCategory)))*100)}%"></div></div>
-            <div class="bar-val">${fmt(val)}</div>
-          </div>`).join('') : `<div class="small-muted">لا توجد بيانات بعد</div>`}
-      </div>
-      <div class="card">
-        <h3 style="margin-top:0;font-size:15px;color:var(--brick-dark);">ملخص التكلفة</h3>
-        <table>
-          <tr><td>تكلفة المواد الأساسية</td><td class="mono" style="text-align:left;">${fmt(result.materialCost)}</td></tr>
-          <tr><td>نقل</td><td class="mono" style="text-align:left;">${fmt(result.extra.transport)}</td></tr>
-          <tr><td>هالك</td><td class="mono" style="text-align:left;">${fmt(result.extra.wastage)}</td></tr>
-          <tr><td>ضريبة إضافية</td><td class="mono" style="text-align:left;">${fmt(result.extra.vat)}</td></tr>
-          <tr><td>مبلغ إضافي آخر</td><td class="mono" style="text-align:left;">${fmt(result.extra.other)}</td></tr>
-          <tr style="font-weight:800;"><td>الإجمالي النهائي</td><td class="mono" style="text-align:left;">${fmt(result.finalTotal)}</td></tr>
-          <tr><td>تكلفة المتر المربع</td><td class="mono" style="text-align:left;">${result.costPerM2?fmt(result.costPerM2):'أدخل مساحة البناء في بيانات المشروع'}</td></tr>
-        </table>
-        <div class="small-muted" style="margin-top:8px;">لتعديل نسب النقل/الهالك/الضريبة اذهب لتبويب المشاريع → تعديل المشروع</div>
-      </div>
-    </div>
-
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
         <h3 style="margin:0;font-size:15px;color:var(--brick-dark);">المقاولون</h3>
@@ -2495,6 +2473,32 @@ function renderCosting(){
         <div style="display:flex;justify-content:space-between;font-weight:800;">
           <span>إجمالي القيم التعاقدية</span><span class="mono">${fmt(contractTotal)}</span>
         </div>`:''}
+    </div>
+
+    <div class="two-col">
+      <div class="card">
+        <h3 style="margin-top:0;font-size:15px;color:var(--brick-dark);">التكلفة حسب القسم</h3>
+        ${Object.keys(result.byCategory).length? Object.entries(result.byCategory).sort((a,b)=>b[1]-a[1]).map(([cat,val])=>`
+          <div class="bar-row">
+            <div class="bar-label">${esc(cat)}</div>
+            <div class="bar-track"><div class="bar-fill" style="width:${Math.min(100,(val/Math.max(...Object.values(result.byCategory)))*100)}%"></div></div>
+            <div class="bar-val">${fmt(val)}</div>
+          </div>`).join('') : `<div class="small-muted">لا توجد بيانات بعد</div>`}
+      </div>
+      <div class="card">
+        <h3 style="margin-top:0;font-size:15px;color:var(--brick-dark);">ملخص التكلفة</h3>
+        <table>
+          <tr><td>تكلفة المواد الأساسية</td><td class="mono" style="text-align:left;">${fmt(result.materialCost)}</td></tr>
+          <tr><td>نقل</td><td class="mono" style="text-align:left;">${fmt(result.extra.transport)}</td></tr>
+          <tr><td>هالك</td><td class="mono" style="text-align:left;">${fmt(result.extra.wastage)}</td></tr>
+          <tr><td>ضريبة إضافية</td><td class="mono" style="text-align:left;">${fmt(result.extra.vat)}</td></tr>
+          <tr><td>مبلغ إضافي آخر</td><td class="mono" style="text-align:left;">${fmt(result.extra.other)}</td></tr>
+          <tr><td>أعمال المقاولين (القيم التعاقدية)</td><td class="mono" style="text-align:left;">${fmt(result.contractorCost)}</td></tr>
+          <tr style="font-weight:800;"><td>الإجمالي النهائي</td><td class="mono" style="text-align:left;">${fmt(result.finalTotal)}</td></tr>
+          <tr><td>تكلفة المتر المربع</td><td class="mono" style="text-align:left;">${result.costPerM2?fmt(result.costPerM2):'أدخل مساحة البناء في بيانات المشروع'}</td></tr>
+        </table>
+        <div class="small-muted" style="margin-top:8px;">لتعديل نسب النقل/الهالك/الضريبة اذهب لتبويب المشاريع → تعديل المشروع</div>
+      </div>
     </div>
   `;
 }
