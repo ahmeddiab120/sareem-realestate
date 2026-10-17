@@ -2922,32 +2922,15 @@ async function deletePO(id){
   await saveKey('purchase_orders', DB.purchase_orders);
   toast('تم الحذف'); renderPOTable();
 }
-// iOS ignores window.print() inside a home-screen web app, so say so instead of
-// doing nothing and leaving the user staring at an unprintable document
+// iOS ignores window.print() inside a home-screen web app, so the button would
+// look broken without a word of explanation
 const IS_STANDALONE = navigator.standalone === true ||
   (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
 
 function printBlockedInApp(){
   if(!IS_STANDALONE) return false;
-  showStandalonePrintHint();
+  toast('الطباعة لا تعمل داخل التطبيق — افتح الموقع في Safari');
   return true;
-}
-
-function showStandalonePrintHint(){
-  const url = location.origin + location.pathname;
-  openModal(`
-    <h3>الطباعة غير متاحة داخل التطبيق</h3>
-    <div class="modal-sub">نظام iOS في iPhone يمنع الطباعة من داخل تطبيقات الشاشة الرئيسية، ولا يوجد تجاوز لذلك من داخل الموقع.<br>لطباعة المستند: افتح الموقع في متصفح <b>Safari</b> ثم استخدم زر الطباعة.</div>
-    <div class="mono" dir="ltr" style="text-align:left;margin-top:12px;padding:9px 11px;border:1px solid var(--glass-border);border-radius:8px;font-size:12px;word-break:break-all;">${esc(url)}</div>
-    <div class="modal-actions">
-      <button class="btn" id="copySiteUrlBtn">نسخ رابط الموقع</button>
-      <button class="btn ghost" onclick="closeModal()">إغلاق</button>
-    </div>
-  `);
-  document.getElementById('copySiteUrlBtn').onclick = async ()=>{
-    try { await navigator.clipboard.writeText(url); toast('تم نسخ الرابط — الصقه في Safari'); }
-    catch(e){ toast('تعذّر النسخ، انسخ الرابط يدوياً'); }
-  };
 }
 
 function printPO(id){
