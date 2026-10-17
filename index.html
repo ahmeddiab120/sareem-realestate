@@ -1248,6 +1248,15 @@ function getConsumedQty(projectId, materialId){
       .filter(it=> it.material_id===materialId)
       .reduce((s,it)=> s + (Number(it.quantity)||0), 0), 0);
 }
+// money actually paid, read off the purchase order lines — net of VAT, so it is
+// comparable with the estimated side which is also priced before tax
+function getConsumedCost(projectId, materialId){
+  return DB.purchase_orders
+    .filter(po=> po.project_id===projectId && po.status!=='ملغي')
+    .reduce((sum, po)=> sum + (po.items||[])
+      .filter(it=> it.material_id===materialId)
+      .reduce((s,it)=> s + (Number(it.quantity)||0)*(Number(it.unit_price)||0), 0), 0);
+}
 function computeProjectCost(projectId){
   const rows = getProjectQuantities(projectId);
   const project = DB.projects.find(p=>p.id===projectId);
@@ -3376,7 +3385,7 @@ function renderReports(){
 
     <div class="card" id="card-consumption">
       <h3 style="margin-top:0;font-size:15px;color:var(--brick-dark);">5) تقرير استهلاك المواد</h3>
-      <div class="small-muted no-print" style="margin-bottom:8px;">إجمالي الكميات والتكاليف المخططة لكل مادة — اعرض كل المشاريع أو اختر مشروعاً محدداً</div>
+      <div class="small-muted no-print" style="margin-bottom:8px;">الكميات المخططة لكل مادة مقابل ما استُهلك ودُفع فعلياً حسب أوامر الشراء — اعرض كل المشاريع أو اختر مشروعاً محدداً</div>
       <div class="toolbar no-print">
         <select id="consumptionProjFilter" onchange="renderMaterialConsumptionReport()">
           <option value="">كل المشاريع</option>
@@ -3442,14 +3451,17 @@ function renderMaterialConsumptionReport(){
       const k = li.material.id;
       if(!agg[k]) agg[k] = {material:li.material, qty:0, cost:0, projects:new Set()};
       agg[k].qty += Number(li.quantity)||0;
-      agg[k].cost += li.total;
       agg[k].projects.add(p.id);
     });
   });
   const rows = Object.values(agg).map(a=>{
-    let consumed = 0;
-    a.projects.forEach(pid=>{ consumed += getConsumedQty(pid, a.material.id); });
+    let consumed = 0, spent = 0;
+    a.projects.forEach(pid=>{
+      consumed += getConsumedQty(pid, a.material.id);
+      spent += getConsumedCost(pid, a.material.id);
+    });
     a.consumed = consumed;
+    a.cost = spent;
     a.remaining = a.qty - consumed;
     return a;
   }).sort((a,b)=> b.cost-a.cost);
@@ -3458,7 +3470,7 @@ function renderMaterialConsumptionReport(){
     <div class="small-muted" style="margin-bottom:10px;">النطاق: ${onlyId? esc(scopeName) : 'كل المشاريع'} | تاريخ التقرير: ${todayStr()}</div>
     <div class="table-scroll">
     <table id="materialConsumptionTable">
-      <thead><tr><th>المادة</th><th>القسم</th><th>إجمالي الكمية</th><th>المستهلكة</th><th>المتبقي</th><th>الوحدة</th><th>إجمالي التكلفة</th></tr></thead>
+      <thead><tr><th>المادة</th><th>القسم</th><th>إجمالي الكمية</th><th>المستهلكة</th><th>المتبقي</th><th>الوحدة</th><th>المصروف فعلياً</th></tr></thead>
       <tbody>
         ${rows.length? rows.map(r=>`<tr>
           <td>${esc(r.material.name_ar)}</td>
