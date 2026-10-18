@@ -316,7 +316,7 @@ tbody tr:hover{background:rgba(181,80,46,0.045);}
 }
 
 .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;}
-.toolbar input[type=text], .toolbar select{
+.toolbar input[type=text], .toolbar input[type=date], .toolbar select{
   font-family:'Tajawal',sans-serif;
   padding:9px 14px;
   border:1px solid var(--glass-border);
@@ -330,11 +330,27 @@ tbody tr:hover{background:rgba(181,80,46,0.045);}
   outline:none;
   transition: border-color .2s, background .2s;
 }
-.toolbar input[type=text]:focus, .toolbar select:focus{
+.toolbar input[type=text]:focus, .toolbar input[type=date]:focus, .toolbar select:focus{
   border-color: var(--brick);
   background: rgba(255,255,255,0.85);
 }
 .toolbar input[type=text]::placeholder{color:var(--ink-soft);}
+/* native date fields ignore the rules above on iOS unless appearance is killed,
+   and their calendar glyph needs to look like part of the pill, not a 90s widget */
+.toolbar input[type=date]{
+  -webkit-appearance:none;appearance:none;
+  min-width:158px;
+  font-family:'IBM Plex Mono',ui-monospace,monospace;
+  font-size:12.5px;
+}
+.toolbar input[type=date]::-webkit-calendar-picker-indicator{
+  opacity:.45;cursor:pointer;transition:opacity .2s;margin-inline-start:4px;
+}
+.toolbar input[type=date]:hover::-webkit-calendar-picker-indicator,
+.toolbar input[type=date]:focus::-webkit-calendar-picker-indicator{opacity:.9;}
+.toolbar input[type=date]::-webkit-datetime-edit-fields-wrapper,
+.toolbar input[type=date]::-webkit-date-and-time-value{text-align:start;}
+.toolbar .datefield{display:flex;align-items:center;gap:7px;margin:0;font-size:12px;color:var(--ink-soft);white-space:nowrap;}
 .toolbar select option{background:#FBF7EE;color:var(--ink);}
 .toolbar .spacer{flex:1;}
 
@@ -784,6 +800,8 @@ button, .tab-btn, .icon-btn, .userchip{touch-action:manipulation;-webkit-user-se
   .section-title{flex-direction:column;align-items:stretch;}
   .section-title .btn{width:100%;}
   .toolbar input[type=text], .toolbar select, .toolbar .searchable{flex:1 1 100%;width:100%;min-width:0;}
+  .toolbar .datefield{flex:1 1 calc(50% - 4px);min-width:0;}
+  .toolbar .datefield input[type=date]{flex:1;width:100%;min-width:0;}
   .card{padding:14px 12px;border-radius:14px;}
   .kpi{padding:12px 14px;}
   table{font-size:12.5px;}
@@ -3890,7 +3908,28 @@ const AUDIT_FIELD_LABELS = {
 const AUDIT_NUMERIC_FIELDS = ['price','quantity','manual_price','contract_value'];
 let AUDIT_ROWS = [];
 let AUDIT_MISSING = false;
-const AUDIT_FILTERS = {table_name:'', action:'', project_id:'', from:'', to:''};
+const AUDIT_FILTERS = {table_name:'', action:'', project_id:'', actor_email:'', from:'', to:''};
+// everyone who shows up in the log, collected as batches arrive — the dropdown
+// can only list users it has actually seen, since the server will not give a
+// distinct list through PostgREST here
+const AUDIT_ACTORS = new Set();
+const AUDIT_NO_ACTOR = '__none__';
+
+function auditActorLabel(email){
+  const ur = (DB.user_roles||[]).find(u=> String(u.email||'').toLowerCase()===String(email).toLowerCase());
+  return ur ? `${email} (${ROLE_LABELS[ur.role]||ur.role})` : email;
+}
+function syncAuditActorFilter(){
+  const sel = document.getElementById('auditActorFilter');
+  if(!sel) return;
+  const cur = AUDIT_FILTERS.actor_email;
+  const emails = [...AUDIT_ACTORS].filter(Boolean).sort((a,b)=> a.toLowerCase().localeCompare(b.toLowerCase()));
+  sel.innerHTML = `<option value="">كل المستخدمين</option>`
+    + emails.map(e=>`<option value="${esc(e)}" ${cur===e?'selected':''}>${esc(auditActorLabel(e))}</option>`).join('')
+    + (AUDIT_ACTORS.has('')
+        ? `<option value="${AUDIT_NO_ACTOR}" ${cur===AUDIT_NO_ACTOR?'selected':''}>غير معروف — تعديل مباشر في قاعدة البيانات</option>`
+        : '');
+}
 
 function auditTime(ts){
   const d = new Date(ts);
@@ -3954,9 +3993,12 @@ function renderAudit(){
           <option value="">كل المشاريع</option>
           ${DB.projects.map(p=>`<option value="${p.id}" ${f.project_id===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}
         </select>
-        <label class="small-muted" style="margin:0;">من <input type="date" value="${f.from}" onchange="setAuditFilter('from', this.value)"></label>
-        <label class="small-muted" style="margin:0;">إلى <input type="date" value="${f.to}" onchange="setAuditFilter('to', this.value)"></label>
-        <button class="btn sm secondary" onclick="AUDIT_FILTERS.table_name='';AUDIT_FILTERS.action='';AUDIT_FILTERS.project_id='';AUDIT_FILTERS.from='';AUDIT_FILTERS.to='';renderAudit();">مسح الفلاتر</button>
+        <select id="auditActorFilter" onchange="setAuditFilter('actor_email', this.value)">
+          <option value="">كل المستخدمين</option>
+        </select>
+        <label class="datefield">من <input type="date" value="${f.from}" onchange="setAuditFilter('from', this.value)"></label>
+        <label class="datefield">إلى <input type="date" value="${f.to}" onchange="setAuditFilter('to', this.value)"></label>
+        <button class="btn sm secondary" onclick="AUDIT_FILTERS.table_name='';AUDIT_FILTERS.action='';AUDIT_FILTERS.project_id='';AUDIT_FILTERS.actor_email='';AUDIT_FILTERS.from='';AUDIT_FILTERS.to='';renderAudit();">مسح الفلاتر</button>
       </div>
     </div>
 
@@ -3974,10 +4016,16 @@ async function loadAuditRows(notify){
     if(f.table_name) q.push(`table_name=eq.${encodeURIComponent(f.table_name)}`);
     if(f.action) q.push(`action=eq.${encodeURIComponent(f.action)}`);
     if(f.project_id) q.push(`project_id=eq.${encodeURIComponent(f.project_id)}`);
+    if(f.actor_email && f.actor_email!==AUDIT_NO_ACTOR) q.push(`actor_email=eq.${encodeURIComponent(f.actor_email)}`);
     if(f.from) q.push(`ts=gte.${encodeURIComponent(f.from + 'T00:00:00')}`);
     if(f.to) q.push(`ts=lte.${encodeURIComponent(f.to + 'T23:59:59')}`);
     try{
       AUDIT_ROWS = (await supabaseFetch(`audit_log?${q.join('&')}`)) || [];
+      AUDIT_ROWS.forEach(r=> AUDIT_ACTORS.add(String(r.actor_email||'')));
+      // an empty actor_email means the change came from SQL, not the site; PostgREST
+      // cannot filter on it reliably, so that one case is narrowed here
+      if(f.actor_email===AUDIT_NO_ACTOR) AUDIT_ROWS = AUDIT_ROWS.filter(r=> !r.actor_email);
+      syncAuditActorFilter();
     }catch(e){
       const m = String((e && e.message) || e);
       AUDIT_MISSING = /404|PGRST205/i.test(m);
