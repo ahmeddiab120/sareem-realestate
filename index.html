@@ -2451,6 +2451,7 @@ function buildMap(){
 /* =========================================================
    COSTING TAB (project quantities + cost calc)
 ========================================================= */
+let qtyFilter = {q:'', cat:'', projectId:''};
 function renderCosting(){
   const el = document.getElementById('panel-costing');
   if(!DB.projects.length){
@@ -2463,6 +2464,12 @@ function renderCosting(){
   const result = computeProjectCost(project.id);
   const contractors = DB.project_contractors.filter(c=>c.project_id===project.id);
   const contractTotal = result.contractorCost;
+  // a filter carried over from another project would hide this one's rows
+  if(qtyFilter.projectId !== project.id) qtyFilter = {q:'', cat:'', projectId:project.id};
+  const qtyCats = [...new Set(rows.map(r=>{
+    const m = DB.materials.find(x=>x.id===r.material_id);
+    return m && m.category ? m.category : '';
+  }).filter(Boolean))].sort();
 
   el.innerHTML = `
     <div class="section-title">
@@ -2473,35 +2480,16 @@ function renderCosting(){
     </div>
 
     <div class="card">
-      <div class="table-scroll">
-      <table>
-        <thead><tr><th>المادة</th><th>الكمية</th><th>المستهلكة</th><th>المتبقي</th><th>الوحدة</th><th>طريقة التسعير</th><th>سعر الوحدة</th><th>الإجمالي</th><th></th></tr></thead>
-        <tbody>
-          ${rows.length? rows.map(r=>{
-            const mat = DB.materials.find(m=>m.id===r.material_id);
-            const unitPrice = resolveUnitPrice(r);
-            const total = unitPrice*(Number(r.quantity)||0);
-            const consumed = getConsumedQty(project.id, r.material_id);
-            const remaining = (Number(r.quantity)||0) - consumed;
-            const methodLabel = PRICING_METHODS.find(pm=>pm.v===r.pricing_method)?.l || r.pricing_method;
-            return `<tr>
-              <td>${mat?esc(mat.name_ar):'—'}</td>
-              <td class="mono">${fmt(r.quantity)}</td>
-              <td class="mono">${fmt(consumed)}</td>
-              <td class="mono" style="${remaining<0?'color:#c0392b;font-weight:700;':''}">${fmt(remaining)}</td>
-              <td>${esc(r.unit)}</td>
-              <td><span class="badge-cat">${esc(methodLabel)}</span></td>
-              <td class="mono">${fmt(unitPrice)}</td>
-              <td class="mono">${fmt(total)}</td>
-              <td>
-                ${can('edit_quantities')?`<button class="icon-btn" onclick="openQtyForm('${project.id}','${r.id}')" title="تعديل">✏️</button>
-                <button class="icon-btn" onclick="deleteQtyRow('${project.id}','${r.id}')" title="حذف">🗑️</button>`:''}
-              </td>
-            </tr>`;
-          }).join('') : `<tr class="empty-row"><td colspan="9">لا توجد بنود كميات مضافة لهذا المشروع بعد</td></tr>`}
-        </tbody>
-      </table>
+      <div class="toolbar">
+        <input type="text" id="qtySearch" placeholder="بحث بالاسم أو الكود..." value="${esc(qtyFilter.q)}" oninput="qtyFilter.q=this.value; renderQtyTable();">
+        <select id="qtyCatFilter" onchange="qtyFilter.cat=this.value; renderQtyTable();">
+          <option value="">كل الأقسام</option>
+          ${qtyCats.map(c=>`<option value="${esc(c)}" ${qtyFilter.cat===c?'selected':''}>${esc(c)}</option>`).join('')}
+        </select>
+        <div class="spacer"></div>
+        <span class="small-muted" id="qtyFilterCount"></span>
       </div>
+      <div class="table-scroll" id="qtyTableWrap"></div>
     </div>
 
     <div class="card">
@@ -2557,6 +2545,61 @@ function renderCosting(){
         <div class="small-muted" style="margin-top:8px;">لتعديل نسب النقل/الهالك/الضريبة اذهب لتبويب المشاريع → تعديل المشروع</div>
       </div>
     </div>
+  `;
+  renderQtyTable();
+}
+// only the table is re-rendered while filtering, so the search box keeps focus
+function renderQtyTable(){
+  const wrap = document.getElementById('qtyTableWrap');
+  if(!wrap) return;
+  const project = DB.projects.find(p=>p.id===ACTIVE_PROJECT_ID) || DB.projects[0];
+  if(!project){ wrap.innerHTML = ''; return; }
+  const all = getProjectQuantities(project.id);
+  const q = qtyFilter.q.trim().toLowerCase();
+  const filtering = !!(q || qtyFilter.cat);
+  const rows = all.filter(r=>{
+    if(!filtering) return true;
+    const m = DB.materials.find(x=>x.id===r.material_id);
+    if(!m) return false;
+    const matchQ = !q || (m.name_ar||'').toLowerCase().includes(q) || (m.code||'').toLowerCase().includes(q) || (m.name_en||'').toLowerCase().includes(q);
+    const matchCat = !qtyFilter.cat || m.category===qtyFilter.cat;
+    return matchQ && matchCat;
+  });
+  const countEl = document.getElementById('qtyFilterCount');
+  if(countEl){
+    countEl.textContent = filtering
+      ? `معروض ${rows.length} من ${all.length} بند — الإجماليات في الأسفل للمشروع كاملاً`
+      : `${all.length} بند في المشروع`;
+  }
+  wrap.innerHTML = `
+    <table>
+      <thead><tr><th>المادة</th><th>القسم</th><th>الكمية</th><th>المستهلكة</th><th>المتبقي</th><th>الوحدة</th><th>طريقة التسعير</th><th>سعر الوحدة</th><th>الإجمالي</th><th></th></tr></thead>
+      <tbody>
+        ${rows.length? rows.map(r=>{
+          const mat = DB.materials.find(m=>m.id===r.material_id);
+          const unitPrice = resolveUnitPrice(r);
+          const total = unitPrice*(Number(r.quantity)||0);
+          const consumed = getConsumedQty(project.id, r.material_id);
+          const remaining = (Number(r.quantity)||0) - consumed;
+          const methodLabel = PRICING_METHODS.find(pm=>pm.v===r.pricing_method)?.l || r.pricing_method;
+          return `<tr>
+            <td>${mat?esc(mat.name_ar):'—'}</td>
+            <td>${mat&&mat.category?`<span class="badge-cat">${esc(mat.category)}</span>`:'—'}</td>
+            <td class="mono">${fmt(r.quantity)}</td>
+            <td class="mono">${fmt(consumed)}</td>
+            <td class="mono" style="${remaining<0?'color:#c0392b;font-weight:700;':''}">${fmt(remaining)}</td>
+            <td>${esc(r.unit)}</td>
+            <td><span class="badge-cat">${esc(methodLabel)}</span></td>
+            <td class="mono">${fmt(unitPrice)}</td>
+            <td class="mono">${fmt(total)}</td>
+            <td>
+              ${can('edit_quantities')?`<button class="icon-btn" onclick="openQtyForm('${project.id}','${r.id}')" title="تعديل">✏️</button>
+              <button class="icon-btn" onclick="deleteQtyRow('${project.id}','${r.id}')" title="حذف">🗑️</button>`:''}
+            </td>
+          </tr>`;
+        }).join('') : `<tr class="empty-row"><td colspan="10">${all.length? 'لا توجد بنود مطابقة للبحث':'لا توجد بنود كميات مضافة لهذا المشروع بعد'}</td></tr>`}
+      </tbody>
+    </table>
   `;
 }
 function openQtyForm(projectId, rowId){
