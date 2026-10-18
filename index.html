@@ -1603,7 +1603,7 @@ document.getElementById('modalOverlay').addEventListener('click', e=>{
 });
 
 /* ===== SEARCHABLE SELECT (type-to-filter combobox) ===== */
-const SEARCHABLE_SELECTOR = '#f_material, #f_supplier, #priceMatFilter, #compareMatSelect, #reportMatSelect, .po-mat-select';
+const SEARCHABLE_SELECTOR = '#f_material, #f_supplier, #priceMatFilter, #priceSupplierFilter, #compareMatSelect, #reportMatSelect, .po-mat-select';
 let _openSearchableApi = null;
 function _escSel(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function enhanceSearchableSelects(root){
@@ -2126,22 +2126,36 @@ async function deleteSupplier(id){
 /* =========================================================
    PRICES TAB
 ========================================================= */
-let pricesFilter = {material:''};
+let pricesFilter = {material:'', supplier:'', cat:'', q:''};
 function renderPrices(){
   const el = document.getElementById('panel-prices');
   destroySearchablesIn(el);
+  const cats = [...new Set(DB.prices.map(p=>{
+    const m = DB.materials.find(x=>x.id===p.material_id);
+    return m && m.category ? m.category : '';
+  }).filter(Boolean))].sort();
   el.innerHTML = `
     <div class="section-title">
       <div><h2>الأسعار وتاريخها</h2><div class="desc">كل سعر يُسجَّل كسجل تاريخي مستقل — لا يتم استبدال الأسعار القديمة</div></div>
       ${can('edit_master')?`<button class="btn" onclick="openPriceForm()" ${!DB.materials.length||!DB.suppliers.length?'disabled title="أضف مواد وموردين أولاً"':''}>+ تسجيل سعر جديد</button>`:''}
     </div>
     <div class="toolbar">
+      <input type="text" id="priceSearch" placeholder="بحث بالمادة أو الكود أو المورد أو مرجع العرض..." value="${esc(pricesFilter.q)}" oninput="pricesFilter.q=this.value; renderPricesTable();">
       <select id="priceMatFilter" onchange="pricesFilter.material=this.value; renderPricesTable();">
         <option value="">كل المواد</option>
-        ${DB.materials.map(m=>`<option value="${m.id}">${esc(m.name_ar)}</option>`).join('')}
+        ${DB.materials.map(m=>`<option value="${m.id}" ${pricesFilter.material===m.id?'selected':''}>${esc(m.name_ar)}</option>`).join('')}
       </select>
+      <select id="priceSupplierFilter" onchange="pricesFilter.supplier=this.value; renderPricesTable();">
+        <option value="">كل الموردين</option>
+        ${DB.suppliers.map(s=>`<option value="${s.id}" ${pricesFilter.supplier===s.id?'selected':''}>${esc(s.name)}</option>`).join('')}
+      </select>
+      <select id="priceCatFilter" onchange="pricesFilter.cat=this.value; renderPricesTable();">
+        <option value="">كل الأقسام</option>
+        ${cats.map(c=>`<option value="${esc(c)}" ${pricesFilter.cat===c?'selected':''}>${esc(c)}</option>`).join('')}
+      </select>
+      ${pricesFilter.material||pricesFilter.supplier||pricesFilter.cat||pricesFilter.q?`<button class="btn sm ghost" onclick="pricesFilter={material:'',supplier:'',cat:'',q:''}; renderPrices();">مسح الفلاتر</button>`:''}
       <div class="spacer"></div>
-      <span class="small-muted">${DB.prices.length} سجل سعر</span>
+      <span class="small-muted" id="priceFilterCount"></span>
     </div>
     <div class="card"><div class="table-scroll" id="pricesTableWrap"></div></div>
   `;
@@ -2150,8 +2164,25 @@ function renderPrices(){
 }
 function renderPricesTable(){
   const wrap = document.getElementById('pricesTableWrap');
-  let rows = DB.prices.filter(p=> !pricesFilter.material || p.material_id===pricesFilter.material)
-    .sort((a,b)=> b.price_date.localeCompare(a.price_date));
+  const q = pricesFilter.q.trim().toLowerCase();
+  let rows = DB.prices.filter(p=>{
+    if(pricesFilter.material && p.material_id!==pricesFilter.material) return false;
+    if(pricesFilter.supplier && p.supplier_id!==pricesFilter.supplier) return false;
+    const m = DB.materials.find(x=>x.id===p.material_id);
+    const s = DB.suppliers.find(x=>x.id===p.supplier_id);
+    if(pricesFilter.cat && (!m || m.category!==pricesFilter.cat)) return false;
+    if(!q) return true;
+    return (m && ((m.name_ar||'').toLowerCase().includes(q) || (m.code||'').toLowerCase().includes(q) || (m.name_en||'').toLowerCase().includes(q)))
+      || (s && (s.name||'').toLowerCase().includes(q))
+      || (p.quote_ref||'').toLowerCase().includes(q);
+  }).sort((a,b)=> b.price_date.localeCompare(a.price_date));
+  const countEl = document.getElementById('priceFilterCount');
+  if(countEl){
+    const filtering = !!(pricesFilter.material || pricesFilter.supplier || pricesFilter.cat || pricesFilter.q.trim());
+    countEl.textContent = filtering
+      ? `معروض ${rows.length} من ${DB.prices.length} سجل سعر`
+      : `${DB.prices.length} سجل سعر`;
+  }
   wrap.innerHTML = `
     <table>
       <thead><tr><th style="white-space:nowrap">التاريخ</th><th>المادة</th><th>المورد</th><th>السعر</th><th>الوحدة</th><th>شامل الضريبة</th><th>شامل النقل</th><th>مرجع العرض</th><th></th></tr></thead>
@@ -2170,7 +2201,7 @@ function renderPricesTable(){
             <td class="small-muted">${p.quote_ref?esc(p.quote_ref):'-'}</td>
             <td>${can('delete_any')?`<button class="icon-btn" onclick="deletePrice('${p.id}')" title="حذف">🗑️</button>`:''}</td>
           </tr>`;
-        }).join('') : `<tr class="empty-row"><td colspan="9">لا توجد أسعار مسجلة بعد</td></tr>`}
+        }).join('') : `<tr class="empty-row"><td colspan="9">${DB.prices.length? 'لا توجد أسعار مطابقة للفلاتر المختارة':'لا توجد أسعار مسجلة بعد'}</td></tr>`}
       </tbody>
     </table>
   `;
