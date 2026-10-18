@@ -2185,7 +2185,7 @@ function renderPricesTable(){
   }
   wrap.innerHTML = `
     <table>
-      <thead><tr><th style="white-space:nowrap">التاريخ</th><th>المادة</th><th>المورد</th><th>السعر</th><th>الوحدة</th><th>شامل الضريبة</th><th>شامل النقل</th><th>مرجع العرض</th><th></th></tr></thead>
+      <thead><tr><th style="white-space:nowrap">التاريخ</th><th>المادة</th><th>القسم</th><th>المورد</th><th>السعر</th><th>الوحدة</th><th>شامل الضريبة</th><th>شامل النقل</th><th>مرجع العرض</th><th></th></tr></thead>
       <tbody>
         ${rows.length? rows.map(p=>{
           const m = DB.materials.find(x=>x.id===p.material_id);
@@ -2193,6 +2193,7 @@ function renderPricesTable(){
           return `<tr>
             <td class="mono" style="white-space:nowrap">${esc(p.price_date)}</td>
             <td>${m?esc(m.name_ar):'—'}</td>
+            <td>${m&&m.category?`<span class="badge-cat">${esc(m.category)}</span>`:'—'}</td>
             <td>${s?esc(s.name):'—'}</td>
             <td class="mono">${fmt(p.price)}</td>
             <td>${esc(p.unit)}</td>
@@ -2201,7 +2202,7 @@ function renderPricesTable(){
             <td class="small-muted">${p.quote_ref?esc(p.quote_ref):'-'}</td>
             <td>${can('delete_any')?`<button class="icon-btn" onclick="deletePrice('${p.id}')" title="حذف">🗑️</button>`:''}</td>
           </tr>`;
-        }).join('') : `<tr class="empty-row"><td colspan="9">${DB.prices.length? 'لا توجد أسعار مطابقة للفلاتر المختارة':'لا توجد أسعار مسجلة بعد'}</td></tr>`}
+        }).join('') : `<tr class="empty-row"><td colspan="10">${DB.prices.length? 'لا توجد أسعار مطابقة للفلاتر المختارة':'لا توجد أسعار مسجلة بعد'}</td></tr>`}
       </tbody>
     </table>
   `;
