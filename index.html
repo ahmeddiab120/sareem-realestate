@@ -1603,7 +1603,7 @@ document.getElementById('modalOverlay').addEventListener('click', e=>{
 });
 
 /* ===== SEARCHABLE SELECT (type-to-filter combobox) ===== */
-const SEARCHABLE_SELECTOR = '#f_material, #f_supplier, #priceMatFilter, #priceSupplierFilter, #compareMatSelect, #reportMatSelect, .po-mat-select';
+const SEARCHABLE_SELECTOR = '#f_material, #f_supplier, #f_copy_src, #priceMatFilter, #priceSupplierFilter, #compareMatSelect, #reportMatSelect, .po-mat-select';
 let _openSearchableApi = null;
 function _escSel(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function enhanceSearchableSelects(root){
@@ -1960,17 +1960,61 @@ function openMaterialForm(id){
       <div class="field full"><label>المواصفة</label><textarea id="f_spec">${esc(m?m.spec:'')}</textarea></div>
       <div class="field full"><label>ملاحظات</label><textarea id="f_notes">${esc(m?m.notes:'')}</textarea></div>
     </div>
+    <div class="field full" id="matDupWrap" style="display:none;margin-top:12px;">
+      <div class="modal-sub" id="matDupMsg" style="margin:0;color:var(--brick-dark);line-height:1.9;"></div>
+    </div>
     <div class="modal-actions">
-      <button class="btn" onclick="saveMaterial('${m?m.id:''}')">${m?'حفظ التعديلات':'إضافة المادة'}</button>
+      <button class="btn" id="matSaveBtn" onclick="saveMaterial('${m?m.id:''}')">${m?'حفظ التعديلات':'إضافة المادة'}</button>
       <button class="btn ghost" onclick="closeModal()">إلغاء</button>
     </div>
   `);
 }
-async function saveMaterial(id){
+// a duplicated material silently splits its prices and quantities across two rows
+// in every report, so the warning has to happen before the save, not after
+function showMatDup(html){
+  const wrap = document.getElementById('matDupWrap');
+  const msg = document.getElementById('matDupMsg');
+  if(wrap) wrap.style.display = 'block';
+  if(msg) msg.innerHTML = html;
+}
+function hideMatDup(){
+  const wrap = document.getElementById('matDupWrap');
+  if(wrap) wrap.style.display = 'none';
+}
+function materialLabel(x){
+  return `${esc(x.name_ar)} — ${esc(x.code||'')}`
+    + (x.category? ` / ${esc(x.category)}` : '')
+    + (x.brand? ` / ${esc(x.brand)}` : '')
+    + (x.size? ` / مقاس ${esc(x.size)}` : '')
+    + (x.diameter? ` / قطر ${esc(x.diameter)}` : '');
+}
+async function saveMaterial(id, force){
   const name_ar = document.getElementById('f_name_ar').value.trim();
   if(!name_ar){ toast('اسم المادة مطلوب'); return; }
   let code = document.getElementById('f_code').value.trim();
   if(!code) code = 'MAT-' + uid('').slice(1,7).toUpperCase();
+  hideMatDup();
+  const sameCode = DB.materials.find(x=> x.id!==id
+    && String(x.code||'').trim().toUpperCase()===code.trim().toUpperCase());
+  if(sameCode){
+    showMatDup(`الكود <b>${esc(code)}</b> مستخدم بالفعل في مادة أخرى:<br>• ${materialLabel(sameCode)}<br>يجب أن يكون الكود فريداً لكل مادة — غيّر الكود أو عدّل المادة الموجودة.`);
+    return;
+  }
+  const normName = name_ar.toLowerCase().replace(/\s+/g,' ');
+  const sameName = DB.materials.filter(x=> x.id!==id
+    && String(x.name_ar||'').trim().toLowerCase().replace(/\s+/g,' ')===normName);
+  if(sameName.length && !force){
+    showMatDup(`توجد <b>${sameName.length}</b> مادة مسجلة بالاسم نفسه:<br>`
+      + sameName.slice(0,4).map(x=> `• ${materialLabel(x)}`).join('<br>')
+      + (sameName.length>4? `<br>• …و ${sameName.length-4} أخرى` : '')
+      + `<br>إذا كانت هذه مادة مختلفة فعلاً (مقاس أو ماركة أخرى) فاضغط الزر مرة أخرى وسيتم الحفظ.`);
+    const btn = document.getElementById('matSaveBtn');
+    if(btn){
+      btn.setAttribute('onclick', `saveMaterial('${id||''}','1')`);
+      btn.textContent = id ? 'احفظها رغم التشابه' : 'أضفها رغم التشابه';
+    }
+    return;
+  }
   const data = {
     code, name_ar,
     name_en: document.getElementById('f_name_en').value.trim(),
@@ -2526,6 +2570,7 @@ function renderCosting(){
       <div><h2>كميات وتكلفة المشروع</h2><div class="desc">المشروع النشط: <b>${esc(project.name)}</b> — اختر المشروع من أعلى الصفحة لتبديله</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         ${can('edit_quantities')?`<button class="btn" onclick="openQtyForm('${project.id}')" ${!DB.materials.length?'disabled title="أضف مواد أولاً"':''}>+ إضافة بند كمية</button>`:''}
+        ${can('edit_quantities')?`<button class="btn secondary" onclick="openCopyQtyForm('${project.id}')" ${DB.projects.length<2?'disabled title="يتطلب وجود مشروعين على الأقل"':''}>نسخ بنود من مشروع آخر</button>`:''}
       </div>
     </div>
 
@@ -2733,6 +2778,95 @@ async function deleteQtyRow(projectId, rowId){
   DB.project_quantities[projectId] = (DB.project_quantities[projectId]||[]).filter(x=>x.id!==rowId);
   await saveKey('project_quantities', DB.project_quantities);
   toast('تم الحذف'); renderCosting();
+}
+
+/* starting a similar building by copying an existing quantity list is far faster
+   than re-entering it; the two modes differ only in what happens to a material
+   both projects already share */
+function copyQtySource(srcId){
+  return getProjectQuantities(srcId).filter(r=> DB.materials.some(m=>m.id===r.material_id));
+}
+function copyQtyPlan(projectId, srcId, mode){
+  const src = copyQtySource(srcId);
+  const ownMats = new Set(getProjectQuantities(projectId).map(r=>r.material_id));
+  let add = 0, shared = 0;
+  src.forEach(r=>{ ownMats.has(r.material_id) ? shared++ : add++; });
+  return {total: src.length, add, shared, replace: mode==='replace'};
+}
+function copyQtyPreview(projectId){
+  const box = document.getElementById('copyQtyPreview');
+  const srcSel = document.getElementById('f_copy_src');
+  const modeSel = document.getElementById('f_copy_mode');
+  if(!box || !srcSel || !modeSel) return;
+  const p = copyQtyPlan(projectId, srcSel.value, modeSel.value);
+  if(!p.total){ box.innerHTML = 'لا توجد بنود كميات في المشروع المختار.'; return; }
+  box.innerHTML = `المشروع المختار يحتوي على <b>${p.total}</b> بند — <b>${p.add}</b> بند ستُضاف`
+    + (p.shared
+      ? (p.replace
+        ? `، و<b>${p.shared}</b> بند موجودة <b>ستُحدَّث كميتها وطريقة تسعيرها</b> من المشروع المنسوخ منه.`
+        : `، و<b>${p.shared}</b> بند موجودة بالفعل <b>لن تتغير</b>.`)
+      : '.');
+}
+function openCopyQtyForm(projectId){
+  if(denyIf('edit_quantities')) return;
+  const others = DB.projects.filter(p=>p.id!==projectId);
+  if(!others.length){ toast('لا يوجد مشروع آخر يمكن النسخ منه'); return; }
+  openModal(`
+    <h3>نسخ بنود من مشروع آخر</h3>
+    <div class="modal-sub">ينسخ البنود بكمياتها ووحداتها وطريقة تسعيرها، ولا يحذف أي بند من المشروع الحالي إلا في وضع الاستبدال</div>
+    <div class="form-grid">
+      <div class="field full"><label>انسخ من مشروع*</label>
+        <select id="f_copy_src" onchange="copyQtyPreview('${projectId}')">
+          ${others.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field full"><label>طريقة النسخ*</label>
+        <select id="f_copy_mode" onchange="copyQtyPreview('${projectId}')">
+          <option value="missing">البنود الناقصة فقط — البنود الموجودة لا تتغير</option>
+          <option value="replace">استبدال أيضاً — البنود المشتركة تأخذ كمية المشروع المنسوخ منه</option>
+        </select>
+      </div>
+      <div class="field full"><div class="modal-sub" id="copyQtyPreview" style="margin:0;"></div></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="copyQuantitiesFrom('${projectId}')">نسخ البنود</button>
+      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+    </div>
+  `);
+  copyQtyPreview(projectId);
+}
+async function copyQuantitiesFrom(projectId){
+  if(denyIf('edit_quantities')) return;
+  const srcId = document.getElementById('f_copy_src').value;
+  const mode = document.getElementById('f_copy_mode').value;
+  const src = copyQtySource(srcId);
+  if(!src.length){ toast('المشروع المختار لا يحتوي على بنود كميات'); return; }
+  const list = DB.project_quantities[projectId] || [];
+  const byMat = new Map();
+  list.forEach(r=>{ if(!byMat.has(r.material_id)) byMat.set(r.material_id, r); });
+  let added = 0, updated = 0, skipped = 0;
+  src.forEach(s=>{
+    const hit = byMat.get(s.material_id);
+    if(hit){
+      if(mode!=='replace'){ skipped++; return; }
+      hit.quantity = s.quantity;
+      hit.unit = s.unit;
+      hit.pricing_method = s.pricing_method;
+      hit.selected_supplier_id = s.selected_supplier_id || '';
+      hit.manual_price = Number(s.manual_price)||0;
+      updated++;
+      return;
+    }
+    const row = {id:uid('PQ'), material_id:s.material_id, quantity:s.quantity, unit:s.unit,
+      pricing_method:s.pricing_method, selected_supplier_id:s.selected_supplier_id||'',
+      manual_price:Number(s.manual_price)||0};
+    list.push(row); byMat.set(row.material_id, row); added++;
+  });
+  DB.project_quantities[projectId] = list;
+  await saveKey('project_quantities', DB.project_quantities);
+  closeModal();
+  toast(`تم نسخ ${added} بند` + (updated? ` وتحديث ${updated} بند`:'') + (skipped? ` — ${skipped} بند موجودة مسبقاً لم تتغير`:''));
+  renderCosting();
 }
 
 function openContractorForm(projectId, rowId){
