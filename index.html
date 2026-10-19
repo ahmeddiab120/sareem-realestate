@@ -2957,6 +2957,7 @@ function renderPO(){
       </select>
       <div class="spacer"></div>
       <span class="small-muted">${DB.purchase_orders.length} أمر شراء</span>
+      <button class="btn sm ghost" onclick="exportCsv('poTable','أوامر_الشراء')" ${DB.purchase_orders.length?'':'disabled'}>تصدير CSV</button>
     </div>
     <div class="card"><div class="table-scroll" id="poTableWrap"></div></div>
   `;
@@ -2970,8 +2971,8 @@ function renderPOTable(){
     return matchProj && matchStat;
   }).sort((a,b)=> b.order_date.localeCompare(a.order_date));
   wrap.innerHTML = `
-    <table>
-      <thead><tr><th>رقم الأمر</th><th>المشروع</th><th>المورد</th><th>تاريخ الأمر</th><th>التسليم المتوقع</th><th>الإجمالي</th><th>الحالة</th><th></th></tr></thead>
+    <table id="poTable">
+      <thead><tr><th>رقم الأمر</th><th>المشروع</th><th>المورد</th><th>تاريخ الأمر</th><th>التسليم المتوقع</th><th>الإجمالي</th><th>الحالة</th><th class="no-export"></th></tr></thead>
       <tbody>
         ${rows.length? rows.map(po=>{
           const proj = DB.projects.find(p=>p.id===po.project_id);
@@ -2985,7 +2986,7 @@ function renderPOTable(){
             <td class="mono">${po.expected_delivery_date?esc(po.expected_delivery_date):'-'}</td>
             <td class="mono">${fmt(poGrossOf(poTotal(po)))}</td>
             <td><span class="pill ${statusClass}">${esc(po.status)}</span></td>
-            <td>
+            <td class="no-export">
               <button class="icon-btn" onclick="printPO('${po.id}')" title="طباعة / تصدير PDF">🖨️</button>
               ${can('edit_po')?`<button class="icon-btn" onclick="openPOForm('${po.id}')" title="تعديل">✏️</button>
               <button class="icon-btn" onclick="deletePO('${po.id}')" title="حذف">🗑️</button>`:''}
@@ -3811,9 +3812,10 @@ function exportCsv(tableId, filename){
   // a cell starting with = + - @ would run as a formula when opened in Excel
   const cell = v => '"' + (/^[=+\-@\t\r]/.test(v) ? "'" + v : v).replace(/"/g,'""') + '"';
   let csv = [];
-  table.querySelectorAll('tr').forEach(tr=>{
+  // the action-button column and the "no data" placeholder are chrome, not data
+  table.querySelectorAll('tr:not(.empty-row)').forEach(tr=>{
     let row = [];
-    tr.querySelectorAll('th,td').forEach(td=> row.push(cell(td.textContent.trim())));
+    tr.querySelectorAll('th:not(.no-export),td:not(.no-export)').forEach(td=> row.push(cell(td.textContent.trim())));
     csv.push(row.join(','));
   });
   const blob = new Blob(["\uFEFF"+csv.join('\n')], {type:'text/csv;charset=utf-8;'});
