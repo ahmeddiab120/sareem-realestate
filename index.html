@@ -3708,6 +3708,8 @@ function renderMaterialConsumptionReport(){
     return a;
   }).sort((a,b)=> b.cost-a.cost);
   const scopeName = onlyId ? (DB.projects.find(p=>p.id===onlyId)||{}).name || '' : '';
+  // only the money column can be summed — the quantity columns mix units
+  const totalSpent = rows.reduce((s,r)=> s + (Number(r.cost)||0), 0);
   wrap.innerHTML = `
     <div class="small-muted" style="margin-bottom:10px;">النطاق: ${onlyId? esc(scopeName) : 'كل المشاريع'} | تاريخ التقرير: ${todayStr()}</div>
     <div class="table-scroll">
@@ -3723,6 +3725,10 @@ function renderMaterialConsumptionReport(){
           <td>${esc(r.material.unit)}</td>
           <td class="mono">${fmt(r.cost)}</td>
         </tr>`).join('') : `<tr class="empty-row"><td colspan="7">${onlyId? 'لا توجد كميات مسجلة في هذا المشروع بعد':'لا توجد كميات مسجلة في أي مشروع بعد'}</td></tr>`}
+        ${rows.length?`<tr style="font-weight:800;background:rgba(234,223,196,0.35);">
+          <td colspan="6" style="border-top:2px solid var(--border);">إجمالي المصروف فعلياً</td>
+          <td class="mono" style="border-top:2px solid var(--border);">${fmt(totalSpent)}</td>
+        </tr>`:''}
       </tbody>
     </table>
     </div>
