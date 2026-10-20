@@ -2564,6 +2564,10 @@ function renderCosting(){
   const result = computeProjectCost(project.id);
   const contractors = DB.project_contractors.filter(c=>c.project_id===project.id);
   const contractTotal = result.contractorCost;
+  // paid and outstanding are cash flow, not cost — the project total must keep
+  // counting the full contract value or money already settled would vanish from it
+  const paidTotal = contractors.reduce((s,c)=> s + (Number(c.paid_amount)||0), 0);
+  const remainingTotal = contractTotal - paidTotal;
   // a filter carried over from another project would hide this one's rows
   if(qtyFilter.projectId !== project.id) qtyFilter = {q:'', cat:'', projectId:project.id};
   const qtyCats = [...new Set(rows.map(r=>{
@@ -2600,24 +2604,38 @@ function renderCosting(){
       </div>
       <div class="table-scroll">
       <table>
-        <thead><tr><th>اسم المقاول</th><th>نطاق العمل</th><th>القيمة التعاقدية</th><th></th></tr></thead>
+        <thead><tr><th>اسم المقاول</th><th>نطاق العمل</th><th>القيمة التعاقدية</th><th>المدفوع</th><th>المتبقي</th><th></th></tr></thead>
         <tbody>
-          ${contractors.length? contractors.map(c=>`<tr>
+          ${contractors.length? contractors.map(c=>{
+            const paid = Number(c.paid_amount)||0;
+            const rest = (Number(c.contract_value)||0) - paid;
+            return `<tr>
             <td>${esc(c.name)}</td>
             <td>${c.scope? esc(c.scope) : '—'}</td>
             <td class="mono">${fmt(c.contract_value)}</td>
+            <td class="mono">${fmt(paid)}</td>
+            <td class="mono"${rest===0?' style="color:var(--green);font-weight:700;"':''}>${fmt(rest)}</td>
             <td>
               ${can('edit_quantities')?`<button class="icon-btn" onclick="openContractorForm('${project.id}','${c.id}')" title="تعديل">✏️</button>
               <button class="icon-btn" onclick="deleteContractorRow('${project.id}','${c.id}')" title="حذف">🗑️</button>`:''}
             </td>
-          </tr>`).join('') : `<tr class="empty-row"><td colspan="4">لا يوجد مقاولون مضافون لهذا المشروع بعد</td></tr>`}
+          </tr>`;
+          }).join('') : `<tr class="empty-row"><td colspan="6">لا يوجد مقاولون مضافون لهذا المشروع بعد</td></tr>`}
         </tbody>
       </table>
       </div>
       ${contractors.length?`
         <div class="divider"></div>
-        <div style="display:flex;justify-content:space-between;font-weight:800;">
-          <span>إجمالي القيم التعاقدية</span><span class="mono">${fmt(contractTotal)}</span>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <div style="display:flex;justify-content:space-between;font-weight:800;">
+            <span>إجمالي القيم التعاقدية</span><span class="mono">${fmt(contractTotal)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-weight:800;color:var(--green);">
+            <span>إجمالي المدفوع</span><span class="mono">${fmt(paidTotal)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-weight:800;color:${remainingTotal===0?'var(--green)':'var(--brick-dark)'};">
+            <span>إجمالي المتبقي</span><span class="mono">${fmt(remainingTotal)}</span>
+          </div>
         </div>`:''}
     </div>
 
@@ -2883,13 +2901,30 @@ function openContractorForm(projectId, rowId){
     <div class="form-grid">
       <div class="field full"><label>اسم المقاول*</label><input id="c_name" value="${esc(c?c.name:'')}"></div>
       <div class="field full"><label>نطاق العمل</label><textarea id="c_scope">${esc(c?c.scope||'':'')}</textarea></div>
-      <div class="field full"><label>القيمة التعاقدية</label><input id="c_value" type="number" step="0.01" min="0" value="${esc(c&&c.contract_value!=null?c.contract_value:'')}"></div>
+      <div class="field"><label>القيمة التعاقدية</label><input id="c_value" type="number" step="0.01" min="0" value="${esc(c&&c.contract_value!=null?c.contract_value:'')}" oninput="contractorRemainderPreview()"></div>
+      <div class="field"><label>المدفوع</label><input id="c_paid" type="number" step="0.01" min="0" value="${esc(c&&c.paid_amount!=null?c.paid_amount:'')}" oninput="contractorRemainderPreview()"></div>
+      <div class="field full"><div class="modal-sub" id="c_remainder" style="margin:0;"></div></div>
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="saveContractorRow('${projectId}','${c?c.id:''}')">${c?'حفظ التعديلات':'إضافة المقاول'}</button>
       <button class="btn ghost" onclick="closeModal()">إلغاء</button>
     </div>
   `);
+  contractorRemainderPreview();
+}
+// shows the outstanding balance while the two money fields are being typed, so an
+// overpayment or a fat-fingered digit is visible before the save rather than after
+function contractorRemainderPreview(){
+  const el = document.getElementById('c_remainder');
+  if(!el) return;
+  const value = Number(document.getElementById('c_value').value)||0;
+  const paid = Number(document.getElementById('c_paid').value)||0;
+  if(!value && !paid){ el.textContent = ''; return; }
+  const rest = value - paid;
+  el.textContent = rest < 0
+    ? `المتبقي: ${fmt(rest)} — المدفوع أكبر من القيمة التعاقدية`
+    : `المتبقي: ${fmt(rest)}`;
+  el.style.color = rest < 0 ? 'var(--brick-dark)' : 'var(--ink-soft)';
 }
 async function saveContractorRow(projectId, rowId){
   if(denyIf('edit_quantities')) return;
@@ -2900,6 +2935,7 @@ async function saveContractorRow(projectId, rowId){
     name,
     scope: document.getElementById('c_scope').value.trim(),
     contract_value: Number(document.getElementById('c_value').value)||0,
+    paid_amount: Number(document.getElementById('c_paid').value)||0,
   };
   if(rowId){
     const idx = DB.project_contractors.findIndex(x=>x.id===rowId);
@@ -4147,9 +4183,9 @@ const AUDIT_FIELD_LABELS = {
   pricing_method:'طريقة التسعير', manual_price:'السعر اليدوي',
   po_number:'رقم أمر الشراء', order_date:'تاريخ الأمر', expected_delivery_date:'التوريد المتوقع',
   status:'الحالة', notes:'ملاحظات', items:'عدد بنود الأمر',
-  name:'الاسم', scope:'نطاق العمل', contract_value:'القيمة التعاقدية', project_id:'المشروع'
+  name:'الاسم', scope:'نطاق العمل', contract_value:'القيمة التعاقدية', paid_amount:'المدفوع', project_id:'المشروع'
 };
-const AUDIT_NUMERIC_FIELDS = ['price','quantity','manual_price','contract_value'];
+const AUDIT_NUMERIC_FIELDS = ['price','quantity','manual_price','contract_value','paid_amount'];
 let AUDIT_ROWS = [];
 let AUDIT_MISSING = false;
 const AUDIT_FILTERS = {table_name:'', action:'', project_id:'', actor_email:'', from:'', to:''};

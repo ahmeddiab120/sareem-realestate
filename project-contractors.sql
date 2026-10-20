@@ -13,9 +13,15 @@ create table if not exists public.project_contractors (
   name           text not null,
   scope          text,
   contract_value numeric(14,2) not null default 0,
+  paid_amount    numeric(14,2) default 0,
   created_at     timestamptz not null default now(),
   updated_at     timestamptz not null default now()
 );
+
+-- nullable on purpose: the client upserts every row with an identical key set and
+-- writes an explicit null for any column a row lacks, which a NOT NULL column rejects
+alter table public.project_contractors
+  add column if not exists paid_amount numeric(14,2) default 0;
 
 alter table public.project_contractors enable row level security;
 grant select, insert, update, delete on public.project_contractors to authenticated;
