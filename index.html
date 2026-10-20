@@ -2916,7 +2916,7 @@ async function deleteContractorRow(projectId, rowId){
    PURCHASE ORDERS TAB
 ========================================================= */
 const PO_STATUSES = ['قيد التنفيذ','تم التوريد بالكامل','تم التوريد جزئياً','متأخر','ملغي'];
-let poFilter = {project:'', status:''};
+let poFilter = {project:'', status:'', q:''};
 let poDraftItems = [];
 let poDraftId = null;
 
@@ -2947,16 +2947,17 @@ function renderPO(){
       ${can('edit_po')?`<button class="btn" onclick="openPOForm()" ${!DB.suppliers.length||!DB.materials.length?'disabled title="أضف مواد وموردين أولاً"':''}>+ إضافة أمر شراء</button>`:''}
     </div>
     <div class="toolbar">
+      <input type="text" id="poSearch" placeholder="بحث برقم الأمر..." value="${esc(poFilter.q)}" oninput="poFilter.q=this.value; renderPOTable();">
       <select id="poProjFilter" onchange="poFilter.project=this.value; renderPOTable();">
         <option value="">كل المشاريع</option>
-        ${DB.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}
+        ${DB.projects.map(p=>`<option value="${p.id}" ${poFilter.project===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}
       </select>
       <select id="poStatusFilter" onchange="poFilter.status=this.value; renderPOTable();">
         <option value="">كل الحالات</option>
-        ${PO_STATUSES.map(s=>`<option>${s}</option>`).join('')}
+        ${PO_STATUSES.map(s=>`<option ${poFilter.status===s?'selected':''}>${s}</option>`).join('')}
       </select>
       <div class="spacer"></div>
-      <span class="small-muted">${DB.purchase_orders.length} أمر شراء</span>
+      <span class="small-muted" id="poFilterCount"></span>
       <button class="btn sm ghost" onclick="exportCsv('poTable','أوامر_الشراء')" ${DB.purchase_orders.length?'':'disabled'}>تصدير CSV</button>
     </div>
     <div class="card"><div class="table-scroll" id="poTableWrap"></div></div>
@@ -2965,11 +2966,20 @@ function renderPO(){
 }
 function renderPOTable(){
   const wrap = document.getElementById('poTableWrap');
+  const q = poFilter.q.trim().toLowerCase();
+  const filtering = !!(q || poFilter.project || poFilter.status);
   let rows = DB.purchase_orders.filter(po=>{
     const matchProj = !poFilter.project || po.project_id===poFilter.project;
     const matchStat = !poFilter.status || po.status===poFilter.status;
-    return matchProj && matchStat;
+    const matchQ = !q || (po.po_number||'').toLowerCase().includes(q);
+    return matchProj && matchStat && matchQ;
   }).sort((a,b)=> b.order_date.localeCompare(a.order_date));
+  const countEl = document.getElementById('poFilterCount');
+  if(countEl){
+    countEl.textContent = filtering
+      ? `معروض ${rows.length} من ${DB.purchase_orders.length} أمر شراء`
+      : `${DB.purchase_orders.length} أمر شراء`;
+  }
   wrap.innerHTML = `
     <table id="poTable">
       <thead><tr><th>رقم الأمر</th><th>المشروع</th><th>المورد</th><th>تاريخ الأمر</th><th>التسليم المتوقع</th><th>الإجمالي</th><th>الحالة</th><th class="no-export"></th></tr></thead>
@@ -2992,7 +3002,7 @@ function renderPOTable(){
               <button class="icon-btn" onclick="deletePO('${po.id}')" title="حذف">🗑️</button>`:''}
             </td>
           </tr>`;
-        }).join('') : `<tr class="empty-row"><td colspan="8">لا توجد أوامر شراء مسجلة بعد</td></tr>`}
+        }).join('') : `<tr class="empty-row"><td colspan="8">${DB.purchase_orders.length? 'لا توجد أوامر شراء مطابقة للبحث':'لا توجد أوامر شراء مسجلة بعد'}</td></tr>`}
       </tbody>
     </table>
   `;
