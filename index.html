@@ -3730,11 +3730,26 @@ function renderReports(){
       </div>
       <div id="materialConsumptionWrap"></div>
     </div>
+
+    <div class="card" id="card-contractors">
+      <h3 style="margin-top:0;font-size:15px;color:var(--brick-dark);">6) تقرير المقاولين</h3>
+      <div class="small-muted no-print" style="margin-bottom:8px;">القيم التعاقدية والمدفوع والمتبقي لكل مقاول — اعرض كل المشاريع أو اختر مشروعاً محدداً</div>
+      <div class="toolbar no-print">
+        <select id="contractorsProjFilter" onchange="renderContractorsReport()">
+          <option value="">كل المشاريع</option>
+          ${DB.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}
+        </select>
+        <button class="btn sm secondary" onclick="printReportCard('card-contractors')">🖨️ طباعة</button>
+        <button class="btn sm ghost" onclick="exportCsv('contractorsReportTable','تقرير_المقاولين')">تصدير CSV</button>
+      </div>
+      <div id="contractorsReportWrap"></div>
+    </div>
   `;
   enhanceSearchableSelects(el);
   renderCostM2Report();
   renderSupplierUsageReport();
   renderMaterialConsumptionReport();
+  renderContractorsReport();
 }
 function renderSupplierUsageReport(){
   const wrap = document.getElementById('supplierUsageWrap');
@@ -3820,6 +3835,52 @@ function renderMaterialConsumptionReport(){
         ${rows.length?`<tr style="font-weight:800;background:rgba(234,223,196,0.35);">
           <td colspan="6" style="border-top:2px solid var(--border);">إجمالي المصروف فعلياً</td>
           <td class="mono" style="border-top:2px solid var(--border);">${fmt(totalSpent)}</td>
+        </tr>`:''}
+      </tbody>
+    </table>
+    </div>
+  `;
+}
+function renderContractorsReport(){
+  const wrap = document.getElementById('contractorsReportWrap');
+  if(!wrap) return;
+  const filterSel = document.getElementById('contractorsProjFilter');
+  const onlyId = filterSel ? filterSel.value : '';
+  const scopeName = onlyId ? (DB.projects.find(p=>p.id===onlyId)||{}).name || '' : '';
+  const rows = (DB.project_contractors||[])
+    .filter(c=> !onlyId || c.project_id===onlyId)
+    .map(c=>{
+      const value = Number(c.contract_value)||0;
+      const paid = Number(c.paid_amount)||0;
+      const p = DB.projects.find(x=>x.id===c.project_id);
+      return {name:c.name||'', scope:c.scope||'', projectName:p?p.name:'—', value, paid, rest:value-paid,
+              pct: value? paid/value*100 : null};
+    })
+    .sort((a,b)=> a.projectName.localeCompare(b.projectName) || b.value-a.value);
+  const totalValue = rows.reduce((s,r)=> s+r.value, 0);
+  const totalPaid = rows.reduce((s,r)=> s+r.paid, 0);
+  const totalRest = totalValue - totalPaid;
+  wrap.innerHTML = `
+    <div class="small-muted" style="margin-bottom:10px;">النطاق: ${onlyId? esc(scopeName) : 'كل المشاريع'} | تاريخ التقرير: ${todayStr()} | عدد المقاولين: ${rows.length}</div>
+    <div class="table-scroll">
+    <table id="contractorsReportTable">
+      <thead><tr><th>المشروع</th><th>المقاول</th><th>نطاق العمل</th><th>القيمة التعاقدية</th><th>المدفوع</th><th>المتبقي</th><th>نسبة المدفوع</th></tr></thead>
+      <tbody>
+        ${rows.length? rows.map(r=>`<tr>
+          <td>${esc(r.projectName)}</td>
+          <td>${esc(r.name)}</td>
+          <td>${r.scope? esc(r.scope) : '—'}</td>
+          <td class="mono">${fmt(r.value)}</td>
+          <td class="mono">${fmt(r.paid)}</td>
+          <td class="mono"${r.rest===0?' style="color:var(--green);font-weight:700;"':''}>${fmt(r.rest)}</td>
+          <td class="mono"${r.pct!==null&&r.pct>100?' style="color:#c0392b;font-weight:700;"':''}>${r.pct===null?'—':fmt(r.pct)+'%'}</td>
+        </tr>`).join('') : `<tr class="empty-row"><td colspan="7">${onlyId? 'لا يوجد مقاولون مضافون لهذا المشروع بعد':'لا يوجد مقاولون مضافون بعد'}</td></tr>`}
+        ${rows.length?`<tr style="font-weight:800;background:rgba(234,223,196,0.35);">
+          <td colspan="3" style="border-top:2px solid var(--border);">الإجمالي</td>
+          <td class="mono" style="border-top:2px solid var(--border);">${fmt(totalValue)}</td>
+          <td class="mono" style="border-top:2px solid var(--border);">${fmt(totalPaid)}</td>
+          <td class="mono" style="border-top:2px solid var(--border);">${fmt(totalRest)}</td>
+          <td class="mono" style="border-top:2px solid var(--border);">${totalValue?fmt(totalPaid/totalValue*100)+'%':'—'}</td>
         </tr>`:''}
       </tbody>
     </table>
