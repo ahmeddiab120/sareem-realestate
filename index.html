@@ -3007,10 +3007,34 @@ function renderPOTable(){
     </table>
   `;
 }
+function normPONumber(v){ return String(v||'').trim().toUpperCase(); }
 function nextPONumber(dateStr){
   const year = (dateStr||todayStr()).slice(0,4);
-  const countThisYear = DB.purchase_orders.filter(po=>po.po_number && po.po_number.includes('-'+year+'-')).length;
-  return `PO-${year}-${String(countThisYear+1).padStart(4,'0')}`;
+  const taken = new Set(DB.purchase_orders.map(po=> normPONumber(po.po_number)).filter(Boolean));
+  // counting the rows of a year breaks the moment one of them is deleted — the count
+  // drops and the suggestion collides with a number already in use, so take the
+  // highest sequence seen this year and keep stepping until the slot is free
+  let max = 0;
+  DB.purchase_orders.forEach(po=>{
+    const n = String(po.po_number||'');
+    if(!n.includes('-'+year+'-')) return;
+    const tail = n.match(/(\d+)\s*$/);
+    if(tail) max = Math.max(max, parseInt(tail[1],10));
+  });
+  let candidate;
+  do { max++; candidate = `PO-${year}-${String(max).padStart(4,'0')}`; }
+  while(taken.has(normPONumber(candidate)));
+  return candidate;
+}
+function showPONumDup(html){
+  const m = document.getElementById('poNumDupMsg');
+  if(!m) return;
+  m.innerHTML = html;
+  m.style.display = 'block';
+}
+function hidePONumDup(){
+  const m = document.getElementById('poNumDupMsg');
+  if(m) m.style.display = 'none';
 }
 function openPOForm(id){
   if(denyIf('edit_po')) return;
@@ -3021,7 +3045,9 @@ function openPOForm(id){
     <h3>${po?'تعديل أمر شراء':'إضافة أمر شراء جديد'}</h3>
     <div class="modal-sub">تسجيل داخلي لمتابعة الطلب — يمكن تصديره كمستند PDF بعد الحفظ</div>
     <div class="form-grid">
-      <div class="field"><label>رقم الأمر</label><input id="f_po_number" value="${esc(po?po.po_number:nextPONumber(todayStr()))}"></div>
+      <div class="field"><label>رقم الأمر</label><input id="f_po_number" value="${esc(po?po.po_number:nextPONumber(todayStr()))}" oninput="hidePONumDup()">
+        <div class="modal-sub" id="poNumDupMsg" style="display:none;margin:6px 0 0;color:var(--brick-dark);line-height:1.8;"></div>
+      </div>
       <div class="field"><label>المشروع*</label>
         <select id="f_project">${DB.projects.map(p=>`<option value="${p.id}" ${po&&po.project_id===p.id?'selected':(!po&&p.id===ACTIVE_PROJECT_ID?'selected':'')}>${esc(p.name)}</option>`).join('')}</select>
       </div>
@@ -3144,8 +3170,25 @@ async function savePO(){
   if(!project_id || !supplier_id){ toast('اختر المشروع والمورد'); return; }
   const validItems = poDraftItems.filter(it=> it.material_id && Number(it.quantity)>0);
   if(!validItems.length){ toast('أضف بنداً واحداً على الأقل بمادة وكمية صحيحة'); return; }
+  const po_number = document.getElementById('f_po_number').value.trim()
+    || nextPONumber(document.getElementById('f_order_date').value);
+  hidePONumDup();
+  // two orders sharing a number cannot be told apart in the change log, on the printed
+  // document or in a dispute with the supplier, so this is a hard stop with no
+  // "save anyway" — unlike a repeated material name, which can be legitimate
+  const clash = DB.purchase_orders.find(x=> x.id!==poDraftId && normPONumber(x.po_number)===normPONumber(po_number));
+  if(clash){
+    const clashSup = DB.suppliers.find(s=>s.id===clash.supplier_id);
+    showPONumDup(`الرقم <b>${esc(po_number)}</b> مستخدم بالفعل في أمر شراء آخر:`
+      + `<br>• المورد: <b>${clashSup?esc(clashSup.name):'—'}</b>`
+      + (clash.order_date? ` — تاريخ الأمر: <b>${esc(clash.order_date)}</b>` : '')
+      + `<br>يجب أن يكون رقم الأمر فريداً لكل أمر — غيّر الرقم، أو عدّل الأمر الموجود.`);
+    const numField = document.getElementById('f_po_number');
+    if(numField) numField.focus();
+    return;
+  }
   const data = {
-    po_number: document.getElementById('f_po_number').value.trim() || nextPONumber(document.getElementById('f_order_date').value),
+    po_number,
     project_id, supplier_id,
     order_date: document.getElementById('f_order_date').value || todayStr(),
     expected_delivery_date: document.getElementById('f_expected_delivery').value || null,
