@@ -463,6 +463,12 @@ tbody tr:hover{background:rgba(181,80,46,0.045);}
 .field textarea{resize:vertical;min-height:50px;}
 .field input, .field select{height:42px;}
 .field input[type=date]{-webkit-appearance:none;appearance:none;min-height:0;}
+.field input[readonly]{
+  background: rgba(203,182,142,0.18);
+  color:var(--ink-soft);
+  cursor:default;
+}
+.field input[readonly]:focus{border-color:var(--border);background:rgba(203,182,142,0.18);}
 .checkfield{display:flex;align-items:center;gap:8px;margin-top:6px;}
 .checkfield input{width:auto;accent-color:var(--brick);}
 .checkfield label{margin:0;font-size:13px;font-weight:500;color:var(--ink);}
@@ -3026,15 +3032,14 @@ function nextPONumber(dateStr){
   while(taken.has(normPONumber(candidate)));
   return candidate;
 }
-function showPONumDup(html){
-  const m = document.getElementById('poNumDupMsg');
-  if(!m) return;
-  m.innerHTML = html;
-  m.style.display = 'block';
-}
-function hidePONumDup(){
-  const m = document.getElementById('poNumDupMsg');
-  if(m) m.style.display = 'none';
+// the sequence is per year, so backdating an order into another year has to move
+// its number with it — otherwise the number would contradict the order date
+function poDateChanged(){
+  if(poDraftId) return;
+  const num = document.getElementById('f_po_number');
+  const date = document.getElementById('f_order_date');
+  if(!num || !date || !date.value) return;
+  num.value = nextPONumber(date.value);
 }
 function openPOForm(id){
   if(denyIf('edit_po')) return;
@@ -3045,8 +3050,8 @@ function openPOForm(id){
     <h3>${po?'تعديل أمر شراء':'إضافة أمر شراء جديد'}</h3>
     <div class="modal-sub">تسجيل داخلي لمتابعة الطلب — يمكن تصديره كمستند PDF بعد الحفظ</div>
     <div class="form-grid">
-      <div class="field"><label>رقم الأمر</label><input id="f_po_number" value="${esc(po?po.po_number:nextPONumber(todayStr()))}" oninput="hidePONumDup()">
-        <div class="modal-sub" id="poNumDupMsg" style="display:none;margin:6px 0 0;color:var(--brick-dark);line-height:1.8;"></div>
+      <div class="field"><label>رقم الأمر</label><input id="f_po_number" value="${esc(po?po.po_number:nextPONumber(todayStr()))}" readonly tabindex="-1">
+        <div class="modal-sub" style="margin:5px 0 0;">${po? 'الرقم ثابت ولا يتغير عند التعديل' : 'يُولَّد تلقائياً ولا يمكن تعديله'}</div>
       </div>
       <div class="field"><label>المشروع*</label>
         <select id="f_project">${DB.projects.map(p=>`<option value="${p.id}" ${po&&po.project_id===p.id?'selected':(!po&&p.id===ACTIVE_PROJECT_ID?'selected':'')}>${esc(p.name)}</option>`).join('')}</select>
@@ -3054,7 +3059,7 @@ function openPOForm(id){
       <div class="field"><label>المورد*</label>
         <select id="f_supplier" onchange="poSupplierChanged()">${DB.suppliers.map(s=>`<option value="${s.id}" ${po&&po.supplier_id===s.id?'selected':''}>${esc(s.name)}</option>`).join('')}</select>
       </div>
-      <div class="field"><label>تاريخ الأمر*</label><input id="f_order_date" type="date" value="${esc(po?po.order_date:todayStr())}"></div>
+      <div class="field"><label>تاريخ الأمر*</label><input id="f_order_date" type="date" value="${esc(po?po.order_date:todayStr())}" onchange="poDateChanged()"></div>
       <div class="field"><label>تاريخ التسليم المتوقع</label><input id="f_expected_delivery" type="date" value="${esc(po&&po.expected_delivery_date?po.expected_delivery_date:'')}"></div>
       <div class="field"><label>الحالة</label>
         <select id="f_status">${PO_STATUSES.map(s=>`<option ${po&&po.status===s?'selected':(!po&&s===PO_STATUSES[0]?'selected':'')}>${s}</option>`).join('')}</select>
@@ -3170,22 +3175,19 @@ async function savePO(){
   if(!project_id || !supplier_id){ toast('اختر المشروع والمورد'); return; }
   const validItems = poDraftItems.filter(it=> it.material_id && Number(it.quantity)>0);
   if(!validItems.length){ toast('أضف بنداً واحداً على الأقل بمادة وكمية صحيحة'); return; }
-  const po_number = document.getElementById('f_po_number').value.trim()
-    || nextPONumber(document.getElementById('f_order_date').value);
-  hidePONumDup();
-  // two orders sharing a number cannot be told apart in the change log, on the printed
-  // document or in a dispute with the supplier, so this is a hard stop with no
-  // "save anyway" — unlike a repeated material name, which can be legitimate
+  let po_number = document.getElementById('f_po_number').value.trim()
+    || nextPONumber(document.getElementById('f_order_date').value || todayStr());
+  // the field is read-only, so a clash is never a typo the user can correct: it means
+  // another order took the number while this form sat open, or the record predates the
+  // uniqueness rule. Regenerate instead of blocking — otherwise the save is stuck with
+  // no way out. toast() replaces rather than stacks, so the notice rides on the
+  // "saved" toast instead of firing a second one that would immediately overwrite it.
+  let poNotice = '';
   const clash = DB.purchase_orders.find(x=> x.id!==poDraftId && normPONumber(x.po_number)===normPONumber(po_number));
   if(clash){
-    const clashSup = DB.suppliers.find(s=>s.id===clash.supplier_id);
-    showPONumDup(`الرقم <b>${esc(po_number)}</b> مستخدم بالفعل في أمر شراء آخر:`
-      + `<br>• المورد: <b>${clashSup?esc(clashSup.name):'—'}</b>`
-      + (clash.order_date? ` — تاريخ الأمر: <b>${esc(clash.order_date)}</b>` : '')
-      + `<br>يجب أن يكون رقم الأمر فريداً لكل أمر — غيّر الرقم، أو عدّل الأمر الموجود.`);
-    const numField = document.getElementById('f_po_number');
-    if(numField) numField.focus();
-    return;
+    const replaced = nextPONumber(document.getElementById('f_order_date').value || todayStr());
+    if(poDraftId) poNotice = ` — الرقم ${po_number} كان مكرراً مع أمر آخر فتم استبداله بـ ${replaced}`;
+    po_number = replaced;
   }
   const data = {
     po_number,
@@ -3203,7 +3205,7 @@ async function savePO(){
     DB.purchase_orders.push({id:uid('PO'), ...data});
   }
   await saveKey('purchase_orders', DB.purchase_orders);
-  closeModal(); toast('تم الحفظ'); renderPOTable();
+  closeModal(); toast('تم الحفظ' + poNotice); renderPOTable();
 }
 async function deletePO(id){
   if(denyIf('edit_po')) return;
