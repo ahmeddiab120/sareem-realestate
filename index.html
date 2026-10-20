@@ -3817,6 +3817,8 @@ function renderMaterialConsumptionReport(){
   const scopeName = onlyId ? (DB.projects.find(p=>p.id===onlyId)||{}).name || '' : '';
   // only the money column can be summed — the quantity columns mix units
   const totalSpent = rows.reduce((s,r)=> s + (Number(r.cost)||0), 0);
+  const totalGross = poGrossOf(totalSpent);
+  const vatPct = Math.round(PO_VAT_RATE*100);
   wrap.innerHTML = `
     <div class="small-muted" style="margin-bottom:10px;">النطاق: ${onlyId? esc(scopeName) : 'كل المشاريع'} | تاريخ التقرير: ${todayStr()}</div>
     <div class="table-scroll">
@@ -3835,6 +3837,10 @@ function renderMaterialConsumptionReport(){
         ${rows.length?`<tr style="font-weight:800;background:rgba(234,223,196,0.35);">
           <td colspan="6" style="border-top:2px solid var(--border);">إجمالي المصروف فعلياً</td>
           <td class="mono" style="border-top:2px solid var(--border);">${fmt(totalSpent)}</td>
+        </tr>
+        <tr style="font-weight:800;background:rgba(234,223,196,0.35);">
+          <td colspan="6">الإجمالي شامل ضريبة القيمة المضافة ${vatPct}%</td>
+          <td class="mono">${fmt(totalGross)}</td>
         </tr>`:''}
       </tbody>
     </table>
