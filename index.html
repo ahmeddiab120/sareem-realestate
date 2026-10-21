@@ -469,6 +469,26 @@ tbody tr:hover{background:rgba(181,80,46,0.045);}
   cursor:default;
 }
 .field input[readonly]:focus{border-color:var(--border);background:rgba(203,182,142,0.18);}
+.pass-wrap{position:relative;}
+/* the login/recovery inputs are forced to direction:ltr, so their text starts at the
+   left edge and the free end of the field is on the right — the toggle goes there */
+.pass-wrap input{padding-right:46px;}
+.pass-toggle{
+  position:absolute;right:5px;top:50%;transform:translateY(-50%);
+  width:36px;height:36px;padding:0;
+  display:flex;align-items:center;justify-content:center;
+  border:none;border-radius:10px;background:transparent;
+  color:var(--ink-soft);cursor:pointer;
+  transition:background .2s,color .2s;
+  -webkit-tap-highlight-color:transparent;
+}
+.pass-toggle svg{width:19px;height:19px;display:block;}
+.pass-toggle svg[hidden]{display:none;}
+.pass-toggle:active{background:rgba(203,182,142,0.42);color:var(--ink);}
+.pass-toggle:focus-visible{outline:2px solid var(--brick);outline-offset:1px;}
+@media (hover:hover){
+  .pass-toggle:hover{background:rgba(203,182,142,0.30);color:var(--ink);}
+}
 .checkfield{display:flex;align-items:center;gap:8px;margin-top:6px;}
 .checkfield input{width:auto;accent-color:var(--brick);}
 .checkfield label{margin:0;font-size:13px;font-weight:500;color:var(--ink);}
@@ -1002,7 +1022,13 @@ if (!window.storage) {
       </div>
       <div class="field">
         <label for="loginPass">كلمة المرور</label>
-        <input type="password" id="loginPass" autocomplete="current-password" required>
+        <div class="pass-wrap">
+          <input type="password" id="loginPass" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" required>
+          <button type="button" class="pass-toggle" onclick="togglePassVisibility('loginPass',this)" title="إظهار كلمة المرور" aria-label="إظهار كلمة المرور" aria-pressed="false">
+            <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.8 12S5.4 5.6 12 5.6 22.2 12 22.2 12 18.6 18.4 12 18.4 1.8 12 1.8 12Z"/><circle cx="12" cy="12" r="3.1"/></svg>
+            <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden><path d="M1.8 12S5.4 5.6 12 5.6 22.2 12 22.2 12 18.6 18.4 12 18.4 1.8 12 1.8 12Z"/><circle cx="12" cy="12" r="3.1"/><line x1="3.8" y1="20.2" x2="20.2" y2="3.8"/></svg>
+          </button>
+        </div>
       </div>
       <button type="submit" class="btn" id="loginBtn">تسجيل الدخول</button>
     </form>
@@ -4442,6 +4468,23 @@ async function init(){
 }
 
 let appStarted = false;
+
+function togglePassVisibility(inputId, btn){
+  const input = document.getElementById(inputId);
+  if(!input || !btn) return;
+  const reveal = input.type === 'password';
+  input.type = reveal ? 'text' : 'password';
+  const open = btn.querySelector('.eye-open');
+  const closed = btn.querySelector('.eye-closed');
+  if(open) open.hidden = reveal;
+  if(closed) closed.hidden = !reveal;
+  const label = reveal ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور';
+  btn.setAttribute('aria-label', label);
+  btn.setAttribute('aria-pressed', String(reveal));
+  btn.title = label;
+  // the click moved focus onto the button; hand it back so typing can continue
+  input.focus();
+}
 
 function showLoginError(msg){
   const el = document.getElementById('loginError');
