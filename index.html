@@ -713,6 +713,23 @@ select#activeProjectSelect option{background:#33291F;color:#F3ECDD;text-align:ce
   background:rgba(47,125,79,0.09);
   color:#2f7d4f;
 }
+.login-error.slide-in{animation:errslide .35s ease-out;}
+@keyframes errslide{
+  from{opacity:0;transform:translateY(-7px);}
+  to{opacity:1;transform:translateY(0);}
+}
+.login-card.shake{animation:cardshake .45s cubic-bezier(.36,.07,.19,.97);}
+@keyframes cardshake{
+  10%,90%{transform:translateX(-2px);}
+  20%,80%{transform:translateX(4px);}
+  30%,50%,70%{transform:translateX(-7px);}
+  40%,60%{transform:translateX(7px);}
+}
+/* a wrong-password shake is exactly the kind of motion that makes some people
+   ill, and the OS already tells us who they are */
+@media (prefers-reduced-motion:reduce){
+  .login-card.shake,.login-error.slide-in{animation:none;}
+}
 .login-busy{font-size:12px;color:var(--ink-soft);margin-top:11px;}
 .titleblock .headstart{
   display:flex;align-items:center;gap:14px;
@@ -4494,6 +4511,14 @@ function showLoginError(msg){
   el.textContent = msg;
   el.classList.remove('ok');
   el.hidden = false;
+  // a second failed attempt has to re-run both animations, so the classes come
+  // off, a reflow is forced, then they go back on
+  const card = el.closest('.login-card');
+  el.classList.remove('slide-in');
+  if(card) card.classList.remove('shake');
+  void el.offsetWidth;
+  el.classList.add('slide-in');
+  if(card) card.classList.add('shake');
 }
 
 function translateAuthError(err){
