@@ -489,6 +489,9 @@ tbody tr:hover{background:rgba(181,80,46,0.045);}
 @media (hover:hover){
   .pass-toggle:hover{background:rgba(203,182,142,0.30);color:var(--ink);}
 }
+/* a second cue besides the icon: while the password is on screen the whole button
+   stays tinted, so the state is readable at a glance even when the icon is small */
+.pass-toggle[aria-pressed="true"]{background:rgba(203,182,142,0.55);color:var(--brick-dark);}
 .checkfield{display:flex;align-items:center;gap:8px;margin-top:6px;}
 .checkfield input{width:auto;accent-color:var(--brick);}
 .checkfield label{margin:0;font-size:13px;font-weight:500;color:var(--ink);}
@@ -1026,7 +1029,7 @@ if (!window.storage) {
           <input type="password" id="loginPass" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" required>
           <button type="button" class="pass-toggle" onclick="togglePassVisibility('loginPass',this)" title="إظهار كلمة المرور" aria-label="إظهار كلمة المرور" aria-pressed="false">
             <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.8 12S5.4 5.6 12 5.6 22.2 12 22.2 12 18.6 18.4 12 18.4 1.8 12 1.8 12Z"/><circle cx="12" cy="12" r="3.1"/></svg>
-            <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden><path d="M1.8 12S5.4 5.6 12 5.6 22.2 12 22.2 12 18.6 18.4 12 18.4 1.8 12 1.8 12Z"/><circle cx="12" cy="12" r="3.1"/><line x1="3.8" y1="20.2" x2="20.2" y2="3.8"/></svg>
+            <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden><path d="M1.8 12S5.4 5.6 12 5.6 22.2 12 22.2 12 18.6 18.4 12 18.4 1.8 12 1.8 12Z"/><line x1="3.2" y1="20.8" x2="20.8" y2="3.2" stroke-width="2.4"/></svg>
           </button>
         </div>
       </div>
