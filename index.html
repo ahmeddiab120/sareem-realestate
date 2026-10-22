@@ -1245,8 +1245,23 @@ function denyIf(perm){
   return true;
 }
 async function loadRole(){
-  const { data: { session } } = await sb.auth.getSession();
-  CURRENT_USER_EMAIL = String((session && session.user && session.user.email) || '').toLowerCase();
+  let { data: { session } } = await sb.auth.getSession();
+  let tokenEmail = String((session && session.user && session.user.email) || '').toLowerCase();
+  // a cached token can still carry an address the account no longer uses — after
+  // an admin (or the user on another device) changes it, the role row has already
+  // moved, so the token is refreshed before anything is looked up by email;
+  // left alone, the old address below would register itself as a brand-new
+  // pending user and the real one would lose every permission. When the live
+  // lookup itself cannot be reached, the cached address is kept as before
+  const { data: live } = await sb.auth.getUser().catch(()=>({ data:null }));
+  const liveEmail = String((live && live.user && live.user.email) || '').toLowerCase();
+  if(liveEmail && liveEmail !== tokenEmail){
+    const { data: fresh } = await sb.auth.refreshSession().catch(()=>({ data:null }));
+    if(fresh && fresh.session) session = fresh.session;
+    tokenEmail = String((session && session.user && session.user.email) || '').toLowerCase();
+    if(tokenEmail !== liveEmail) throw new Error('EMAIL_CHANGED');
+  }
+  CURRENT_USER_EMAIL = tokenEmail;
   let rows = [];
   let rolesNotInstalled = false;
   try { rows = (await supabaseFetch('user_roles?select=*')) || []; }
@@ -1522,6 +1537,7 @@ async function renderProfile(){
         <div class="field full">
           <label for="pfEmail">البريد الإلكتروني (هو اسم الدخول)</label>
           <input id="pfEmail" type="email" value="${E((user && user.email) || '')}" autocomplete="email" dir="ltr">
+          <div class="pf-hint">تغييره ينقل معه دورك وسجل تغييراتك، ثم يُطلب منك تسجيل الدخول من جديد بالبريد الجديد</div>
         </div>
         <div class="field full">
           <label for="pfPhone">رقم الجوال</label>
@@ -1590,21 +1606,30 @@ async function saveProfile(){
   }
   btn.disabled = true;
   _pfMsg('جارٍ الحفظ…', 'ok');
+  let step = 'profile';
   try {
-    let note = '';
-    if (emailChanged) {
-      const r2 = await sb.auth.updateUser({ email });
-      if (r2.error) throw r2.error;
-      note = ' — وتم إرسال رابط تأكيد إلى البريد الجديد، ويُعتمد التغيير بعد تأكيده.';
-    }
     const r1 = await sb.auth.updateUser({ data: { first_name: first, last_name: last, phone, avatar: _pfAvatar } });
     if (r1.error) throw r1.error;
-    _pfMsg('تم الحفظ' + note, 'ok');
+    if (emailChanged) {
+      // the address is the key the roles table and every policy hang on, so it
+      // moves through the server and not through auth alone — changing it here
+      // directly would leave the account holding an address the site knows
+      // nothing about, with no role and no history attached
+      step = 'email';
+      _pfMsg('تم حفظ بياناتك — جارٍ تغيير البريد…', 'ok');
+      await callUpdateEmail(curEmail, email.toLowerCase());
+      toast('تم تغيير البريد — سجّل الدخول بالبريد الجديد');
+      await afterOwnEmailChange(email.toLowerCase());
+      return;
+    }
+    _pfMsg('تم الحفظ', 'ok');
     toast('تم حفظ الملف الشخصي');
     await renderUserChip();
   } catch (e) {
     console.error('saveProfile failed', e);
-    _pfMsg(_pfErrText(e), 'err');
+    _pfMsg(step === 'email'
+      ? 'تم حفظ بياناتك، لكن ' + emailFnError(e)
+      : _pfErrText(e), 'err');
   } finally {
     btn.disabled = false;
   }
@@ -4048,7 +4073,7 @@ function renderUsers(){
   }
   el.innerHTML = `
     <div class="section-title">
-      <div><h2>إدارة المستخدمين</h2><div class="desc">أي حساب جديد يعمل تسجيل دخول لأول مرة يظهر هنا تلقائياً بدور «في انتظار تحديد الدور» — حدد دوره من القائمة. إنشاء الحساب نفسه (بريد وكلمة مرور) يتم من زر «+ إضافة مستخدم»</div></div>
+      <div><h2>إدارة المستخدمين</h2><div class="desc">أي حساب جديد يعمل تسجيل دخول لأول مرة يظهر هنا تلقائياً بدور «في انتظار تحديد الدور» — حدد دوره من القائمة. إنشاء الحساب نفسه (بريد وكلمة مرور) يتم من زر «+ إضافة مستخدم»، وتغيير البريد يتم من ✏️ بجانب المستخدم فينتقل معه دوره ومشروعه وسجل تغييراته</div></div>
       <button class="btn" onclick="openUserForm()">+ إضافة مستخدم</button>
     </div>
     <div class="card">
@@ -4104,6 +4129,7 @@ function renderUsersTable(){
               </div>
             </td>
             <td>
+              <button class="icon-btn" onclick="openEmailForm(${i})" title="تغيير البريد الإلكتروني">✏️</button>
               <button class="icon-btn" onclick="resetUserPassword(${i})" title="إرسال رابط إعادة تعيين كلمة المرور">🔑</button>
               ${(!isMe&&!lastAdmin)?`<button class="icon-btn" onclick="deleteUser(${i})" title="حذف نهائي — المستخدم وحسابه">🗑️</button>`:''}
             </td>
@@ -4209,6 +4235,81 @@ async function resetUserPassword(i){
     toast('تم إرسال رابط إعادة التعيين إلى بريد المستخدم');
   }catch(e){
     toast('تعذر الإرسال: ' + (e && e.message ? e.message : e));
+  }
+}
+const UPDATE_EMAIL_FN = SUPABASE_URL + '/functions/v1/update-email';
+// both doors into an email change — the admin's users page and the user's own
+// profile page — go through this one call, and the server decides who is allowed
+async function callUpdateEmail(oldEmail, newEmail){
+  const { data:{ session } } = await sb.auth.getSession();
+  const res = await fetch(UPDATE_EMAIL_FN, {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json', 'apikey': SUPABASE_KEY, 'Authorization':'Bearer ' + ((session && session.access_token) || '') },
+    body: JSON.stringify({ email: oldEmail, new_email: newEmail })
+  });
+  const txt = await res.text();
+  let out = null; try{ out = txt? JSON.parse(txt) : null; }catch(_){ out = null; }
+  if(!res.ok) throw new Error((out && out.error) || (txt? txt.slice(0,140) : 'HTTP ' + res.status));
+  return out || {};
+}
+function emailFnError(e){
+  const m = String((e && e.message) || e);
+  return /Failed to fetch|fetch|404/i.test(m)
+    ? 'تعذّر الوصول إلى خدمة تغيير البريد — تأكد من نشر Edge Function باسم update-email'
+    : 'تعذر تغيير البريد: ' + m.slice(0,150);
+}
+// the token in hand still carries the old address, and every database policy
+// reads the address from that token — so the session has to be ended here rather
+// than left running with permissions it can no longer prove
+async function afterOwnEmailChange(newEmail){
+  sessionStorage.setItem('sareemEmailChanged', newEmail);
+  await sb.auth.signOut();
+  location.reload();
+}
+function openEmailForm(i){
+  if(denyIf('manage_users')) return;
+  const u = (DB.user_roles||[])[i];
+  if(!u) return;
+  const mine = String(u.email||'').toLowerCase()===CURRENT_USER_EMAIL;
+  openModal(`
+    <h3>تغيير البريد الإلكتروني</h3>
+    <div class="modal-sub">البريد هو اسم الدخول — تغييره ينقل معه الدور والمشروع وسجل التغييرات</div>
+    <div class="form-grid">
+      <div class="field full"><label>البريد الحالي</label><input value="${esc(u.email)}" readonly dir="ltr"></div>
+      <div class="field full"><label>البريد الجديد*</label><input id="f_newemail" type="email" placeholder="name@example.com" autocomplete="off" dir="ltr"></div>
+    </div>
+    <div class="small-muted" style="line-height:1.9;">
+      ${mine
+        ? 'هذا بريدك أنت — بعد التغيير ستُسجَّل خروجاً تلقائياً ثم تدخل بالبريد الجديد.'
+        : 'بعد التغيير سيحتاج المستخدم إلى تسجيل الخروج والدخول من جديد بالبريد الجديد.'}
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="saveEmailChange(${i})">تغيير البريد</button>
+      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+    </div>
+  `);
+}
+async function saveEmailChange(i){
+  if(denyIf('manage_users')) return;
+  const u = (DB.user_roles||[])[i];
+  if(!u) return;
+  const oldEmail = String(u.email||'').trim().toLowerCase();
+  const input = document.getElementById('f_newemail');
+  const newEmail = String((input && input.value)||'').trim().toLowerCase();
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(newEmail)){ toast('اكتب بريداً إلكترونياً صحيحاً'); return; }
+  if(newEmail===oldEmail){ toast('البريد الجديد هو نفسه الحالي'); return; }
+  if(!(await askConfirm(`تغيير بريد ${oldEmail} إلى ${newEmail}؟ سينتقل الدور والمشروع وسجل التغييرات إلى البريد الجديد.`, 'تغيير البريد الإلكتروني', 'نعم، غيّر'))) return;
+  try{
+    const out = await callUpdateEmail(oldEmail, newEmail);
+    // the confirmation already closed this modal, so there is nothing left on
+    // screen to update — the reload below or the table re-render does it
+    if(out.self){ await afterOwnEmailChange(newEmail); return; }
+    DB.user_roles = (await supabaseFetch('user_roles?select=*')) || [];
+    toast('تم تغيير البريد — أبلغ المستخدم بالدخول بالبريد الجديد');
+    renderUsersTable();
+  }catch(e){
+    toast(emailFnError(e));
+    renderUsersTable();
   }
 }
 function openUserForm(){
@@ -4576,13 +4677,23 @@ async function startApp(){
   try {
     await init();
   } catch (e) {
-    if ((e && e.message) !== 'ACCOUNT_DISABLED') throw e;
+    const reason = e && e.message;
+    if (reason !== 'ACCOUNT_DISABLED' && reason !== 'EMAIL_CHANGED') throw e;
     appStarted = false;
     document.getElementById('userMenu').hidden = true;
     document.getElementById('loginGate').hidden = false;
     // signOut triggers a page reload, so the reason is carried across it
-    sessionStorage.setItem('sareemDisabled', '1');
+    if (reason === 'ACCOUNT_DISABLED') sessionStorage.setItem('sareemDisabled', '1');
     await sb.auth.signOut();
+    if (reason === 'EMAIL_CHANGED') {
+      // nothing was done wrong here, so this stays a plain note instead of going
+      // through the error funnel that shakes the card
+      const note = document.getElementById('loginError');
+      note.textContent = 'تم تغيير بريد هذا الحساب — سجّل الدخول بالبريد الجديد';
+      note.classList.add('ok');
+      note.hidden = false;
+      return;
+    }
     showLoginError('تم إيقاف هذا الحساب — راجع الأدمن');
   }
 }
@@ -4682,6 +4793,14 @@ async function changeRecoveryPassword(){
     sessionStorage.removeItem('sareemPassChanged');
     const note = document.getElementById('loginError');
     note.textContent = 'تم تغيير كلمة المرور — سجّل دخول بالكلمة الجديدة';
+    note.classList.add('ok');
+    note.hidden = false;
+  }
+  const movedEmail = sessionStorage.getItem('sareemEmailChanged');
+  if (movedEmail) {
+    sessionStorage.removeItem('sareemEmailChanged');
+    const note = document.getElementById('loginError');
+    note.textContent = 'تم تغيير بريدك إلى ' + movedEmail + ' — سجّل الدخول به';
     note.classList.add('ok');
     note.hidden = false;
   }
