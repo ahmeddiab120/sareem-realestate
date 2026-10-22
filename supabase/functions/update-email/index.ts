@@ -7,7 +7,7 @@
 // function moves all three in one go, and rolls the auth change back if the role
 // row refuses to move.
 //
-// An admin may change anyone's address; anyone signed in may change their own.
+// An admin may change any address, including their own; nobody else may.
 //
 // Deploy: Supabase dashboard -> Edge Functions -> create `update-email` ->
 // paste this file -> Deploy. Then in the function's Settings turn
@@ -76,10 +76,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     .eq("email", callerEmail)
     .maybeSingle();
 
-  if (!me || me.disabled) {
-    return reply(403, { error: "هذا الحساب موقوف أو غير معروف" });
+  if (!me || me.disabled || me.role !== "admin") {
+    return reply(403, { error: "تغيير البريد الإلكتروني للأدمن فقط" });
   }
-  const isAdmin = me.role === "admin";
 
   // ---- which account, and to what address? ----
   let body: Record<string, unknown>;
@@ -89,7 +88,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return reply(400, { error: "البيانات المرسلة غير صحيحة" });
   }
 
-  // no address sent means "mine", which is what the profile page does
+  // no address sent means the caller's own row, which is how an admin edits
+  // themselves from the users page
   const oldEmail = String(body.email ?? callerEmail).trim().toLowerCase();
   const newEmail = String(body.new_email ?? "").trim().toLowerCase();
 
@@ -101,9 +101,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   const self = oldEmail === callerEmail;
-  if (!self && !isAdmin) {
-    return reply(403, { error: "تغيير بريد مستخدم آخر للأدمن فقط" });
-  }
 
   // ---- is the new address free? ----
   const { data: taken } = await admin

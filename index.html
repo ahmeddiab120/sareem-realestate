@@ -1536,8 +1536,8 @@ async function renderProfile(){
         </div>
         <div class="field full">
           <label for="pfEmail">البريد الإلكتروني (هو اسم الدخول)</label>
-          <input id="pfEmail" type="email" value="${E((user && user.email) || '')}" autocomplete="email" dir="ltr">
-          <div class="pf-hint">تغييره ينقل معه دورك وسجل تغييراتك، ثم يُطلب منك تسجيل الدخول من جديد بالبريد الجديد</div>
+          <input id="pfEmail" type="email" value="${E((user && user.email) || '')}" autocomplete="email" dir="ltr" readonly>
+          <div class="pf-hint">البريد هو اسم الدخول — تغييره يتم من الأدمن في صفحة إدارة المستخدمين</div>
         </div>
         <div class="field full">
           <label for="pfPhone">رقم الجوال</label>
@@ -1584,8 +1584,6 @@ async function renderProfile(){
 }
 function _pfErrText(e){
   const m = (e && e.message) || '';
-  if (/already been registered|already registered/i.test(m)) return 'هذا البريد مسجَّل لحساب آخر';
-  if (/invalid email|unable to validate email/i.test(m)) return 'صيغة البريد الإلكتروني غير صحيحة';
   if (/rate limit|too many requests/i.test(m)) return 'محاولات كثيرة جداً — انتظر دقيقة ثم حاول مجدداً';
   if (/failed to fetch|network/i.test(m)) return 'تعذّر الاتصال بالخادم — تأكد من اتصال الإنترنت';
   return 'تعذّر الحفظ: ' + m;
@@ -1595,41 +1593,17 @@ async function saveProfile(){
   const first = document.getElementById('pfFirst').value.trim();
   const last = document.getElementById('pfLast').value.trim();
   const phone = document.getElementById('pfPhone').value.trim();
-  const email = document.getElementById('pfEmail').value.trim();
-  const { data:{ user: cur } } = await sb.auth.getUser();
-  const curEmail = (cur && cur.email) || '';
-  const emailChanged = !!email && email.toLowerCase() !== curEmail.toLowerCase();
-  if (!email) { _pfMsg('البريد الإلكتروني مطلوب — هو اسم الدخول', 'err'); return; }
-  if (emailChanged && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
-    _pfMsg('صيغة البريد الإلكتروني غير صحيحة', 'err');
-    return;
-  }
   btn.disabled = true;
   _pfMsg('جارٍ الحفظ…', 'ok');
-  let step = 'profile';
   try {
     const r1 = await sb.auth.updateUser({ data: { first_name: first, last_name: last, phone, avatar: _pfAvatar } });
     if (r1.error) throw r1.error;
-    if (emailChanged) {
-      // the address is the key the roles table and every policy hang on, so it
-      // moves through the server and not through auth alone — changing it here
-      // directly would leave the account holding an address the site knows
-      // nothing about, with no role and no history attached
-      step = 'email';
-      _pfMsg('تم حفظ بياناتك — جارٍ تغيير البريد…', 'ok');
-      await callUpdateEmail(curEmail, email.toLowerCase());
-      toast('تم تغيير البريد — سجّل الدخول بالبريد الجديد');
-      await afterOwnEmailChange(email.toLowerCase());
-      return;
-    }
     _pfMsg('تم الحفظ', 'ok');
     toast('تم حفظ الملف الشخصي');
     await renderUserChip();
   } catch (e) {
     console.error('saveProfile failed', e);
-    _pfMsg(step === 'email'
-      ? 'تم حفظ بياناتك، لكن ' + emailFnError(e)
-      : _pfErrText(e), 'err');
+    _pfMsg(_pfErrText(e), 'err');
   } finally {
     btn.disabled = false;
   }
