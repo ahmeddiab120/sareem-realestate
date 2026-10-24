@@ -3974,9 +3974,11 @@ function lastPurchaseInProject(projectId, materialId){
   if(!pos.length) return null;
   const po = pos[0];
   const lines = (po.items||[]).filter(it=> it.material_id===materialId);
+  const line = lines[lines.length-1];
   const sup = DB.suppliers.find(s=>s.id===po.supplier_id);
   return {
-    price: Number(lines[lines.length-1].unit_price)||0,
+    price: Number(line.unit_price)||0,
+    qty: Number(line.quantity)||0,
     date: po.order_date||'',
     po_number: po.po_number||'',
     supplier: sup ? sup.name : '—',
@@ -4001,7 +4003,7 @@ function renderPriceVarianceReport(){
       const tablePrice = Number(li.unitPrice)||0;
       const last = lastPurchaseInProject(p.id, li.material.id);
       scopeRows.push({
-        project: p, material: li.material, qty: Number(li.quantity)||0,
+        project: p, material: li.material, qty: last ? last.qty : null,
         tablePrice, last,
         diff: last ? last.price - tablePrice : null,
         pct: (last && tablePrice) ? (last.price - tablePrice)/tablePrice*100 : null,
@@ -4032,13 +4034,13 @@ function renderPriceVarianceReport(){
     <div class="small-muted" style="margin-bottom:10px;">النطاق: ${onlyId? esc(scopeName) : 'كل المشاريع'} | المادة: ${matId? esc(matName) : 'كل المواد'} | حالة الشراء: ${stateName} | تاريخ التقرير: ${todayStr()} | عدد البنود: ${rows.length} | تم شراؤها: ${bought} | أعلى من سعر الجدول: ${higher} | أقل من سعر الجدول: ${lower}</div>
     <div class="table-scroll">
     <table id="priceVarianceTable">
-      <thead><tr>${onlyId?'':'<th>المشروع</th>'}<th>المادة</th><th>القسم</th><th>الكمية</th><th>الوحدة</th><th>سعر جدول الكميات</th><th>آخر سعر شراء</th><th>الفرق</th><th>نسبة الفرق</th><th>تاريخ آخر شراء</th><th>المورد</th><th>أمر الشراء</th></tr></thead>
+      <thead><tr>${onlyId?'':'<th>المشروع</th>'}<th>المادة</th><th>القسم</th><th>كمية آخر أمر شراء</th><th>الوحدة</th><th>سعر جدول الكميات</th><th>آخر سعر شراء</th><th>الفرق</th><th>نسبة الفرق</th><th>تاريخ آخر شراء</th><th>المورد</th><th>أمر الشراء</th></tr></thead>
       <tbody>
         ${rows.length? rows.map(r=>`<tr>
           ${onlyId?'':`<td>${esc(r.project.name)}</td>`}
           <td>${esc(r.material.name_ar)}</td>
           <td><span class="badge-cat">${esc(r.material.category)}</span></td>
-          <td class="mono">${fmt(r.qty)}</td>
+          <td class="mono">${r.qty===null? '—' : fmt(r.qty)}</td>
           <td>${esc(r.material.unit)}</td>
           <td class="mono">${fmt(r.tablePrice)}</td>
           <td class="mono">${r.last? fmt(r.last.price) : 'لم يتم الشراء'}</td>
