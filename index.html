@@ -1654,7 +1654,7 @@ document.getElementById('modalOverlay').addEventListener('click', e=>{
 });
 
 /* ===== SEARCHABLE SELECT (type-to-filter combobox) ===== */
-const SEARCHABLE_SELECTOR = '#f_material, #f_supplier, #f_copy_src, #priceMatFilter, #priceSupplierFilter, #compareMatSelect, #reportMatSelect, .po-mat-select';
+const SEARCHABLE_SELECTOR = '#f_material, #f_supplier, #f_copy_src, #priceMatFilter, #priceSupplierFilter, #compareMatSelect, #reportMatSelect, #priceVarianceMatFilter, .po-mat-select';
 let _openSearchableApi = null;
 function _escSel(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function enhanceSearchableSelects(root){
@@ -3798,8 +3798,12 @@ function renderReports(){
           <option value="">كل المشاريع</option>
           ${DB.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}
         </select>
-        <select id="priceVarianceStateFilter" onchange="renderPriceVarianceReport()">
+        <select id="priceVarianceMatFilter" onchange="renderPriceVarianceReport()">
           <option value="">كل المواد</option>
+          ${DB.materials.map(m=>`<option value="${m.id}">${esc(m.name_ar)}</option>`).join('')}
+        </select>
+        <select id="priceVarianceStateFilter" onchange="renderPriceVarianceReport()">
+          <option value="">كل الحالات</option>
           <option value="bought">صدر لها أمر شراء</option>
           <option value="notbought">لم يصدر لها أمر شراء</option>
         </select>
@@ -3985,15 +3989,18 @@ function renderPriceVarianceReport(){
   const onlyId = filterSel ? filterSel.value : '';
   const stateSel = document.getElementById('priceVarianceStateFilter');
   const state = stateSel ? stateSel.value : '';
-  const stateName = state==='bought' ? 'صدر لها أمر شراء' : (state==='notbought' ? 'لم يصدر لها أمر شراء' : 'كل المواد');
+  const stateName = state==='bought' ? 'صدر لها أمر شراء' : (state==='notbought' ? 'لم يصدر لها أمر شراء' : 'كل الحالات');
+  const matSel = document.getElementById('priceVarianceMatFilter');
+  const matId = matSel ? matSel.value : '';
+  const matName = matId ? ((DB.materials.find(m=>m.id===matId)||{}).name_ar || '') : '';
   const projects = onlyId ? DB.projects.filter(p=>p.id===onlyId) : DB.projects;
-  const allRows = [];
+  const scopeRows = [];
   projects.forEach(p=>{
     computeProjectCost(p.id).lineItems.forEach(li=>{
       if(!li.material) return;
       const tablePrice = Number(li.unitPrice)||0;
       const last = lastPurchaseInProject(p.id, li.material.id);
-      allRows.push({
+      scopeRows.push({
         project: p, material: li.material, qty: Number(li.quantity)||0,
         tablePrice, last,
         diff: last ? last.price - tablePrice : null,
@@ -4001,9 +4008,9 @@ function renderPriceVarianceReport(){
       });
     });
   });
-  const rows = state==='bought' ? allRows.filter(r=>r.last)
-    : state==='notbought' ? allRows.filter(r=>!r.last)
-    : allRows;
+  const rows = scopeRows
+    .filter(r=> !matId || r.material.id===matId)
+    .filter(r=> state==='bought' ? r.last : (state==='notbought' ? !r.last : true));
   rows.sort((a,b)=> String(a.material.category||'').localeCompare(String(b.material.category||''))
     || String(a.material.name_ar||'').localeCompare(String(b.material.name_ar||'')));
   const scopeName = onlyId ? (DB.projects.find(p=>p.id===onlyId)||{}).name || '' : '';
@@ -4022,7 +4029,7 @@ function renderPriceVarianceReport(){
     return `<td class="mono" style="color:${color};font-weight:${r.pct?700:400};">${(r.pct>0?'+':'')+fmt(r.pct)}%</td>`;
   };
   wrap.innerHTML = `
-    <div class="small-muted" style="margin-bottom:10px;">النطاق: ${onlyId? esc(scopeName) : 'كل المشاريع'} | حالة الشراء: ${stateName} | تاريخ التقرير: ${todayStr()} | عدد المواد: ${rows.length} | تم شراؤها: ${bought} | أعلى من سعر الجدول: ${higher} | أقل من سعر الجدول: ${lower}</div>
+    <div class="small-muted" style="margin-bottom:10px;">النطاق: ${onlyId? esc(scopeName) : 'كل المشاريع'} | المادة: ${matId? esc(matName) : 'كل المواد'} | حالة الشراء: ${stateName} | تاريخ التقرير: ${todayStr()} | عدد البنود: ${rows.length} | تم شراؤها: ${bought} | أعلى من سعر الجدول: ${higher} | أقل من سعر الجدول: ${lower}</div>
     <div class="table-scroll">
     <table id="priceVarianceTable">
       <thead><tr>${onlyId?'':'<th>المشروع</th>'}<th>المادة</th><th>القسم</th><th>الكمية</th><th>الوحدة</th><th>سعر جدول الكميات</th><th>آخر سعر شراء</th><th>الفرق</th><th>نسبة الفرق</th><th>تاريخ آخر شراء</th><th>المورد</th><th>أمر الشراء</th></tr></thead>
@@ -4040,11 +4047,11 @@ function renderPriceVarianceReport(){
           <td class="mono">${r.last? esc(r.last.date||'—') : '—'}</td>
           <td>${r.last? esc(r.last.supplier) : '—'}</td>
           <td class="mono">${r.last? esc(r.last.po_number) : '—'}</td>
-        </tr>`).join('') : `<tr class="empty-row"><td colspan="${cols}">${allRows.length? 'لا توجد مواد مطابقة لحالة الشراء المختارة' : (onlyId? 'لا توجد كميات مسجلة في هذا المشروع بعد':'لا توجد كميات مسجلة في أي مشروع بعد')}</td></tr>`}
+        </tr>`).join('') : `<tr class="empty-row"><td colspan="${cols}">${scopeRows.length? 'لا توجد بنود مطابقة للفلاتر المختارة' : (onlyId? 'لا توجد كميات مسجلة في هذا المشروع بعد':'لا توجد كميات مسجلة في أي مشروع بعد')}</td></tr>`}
       </tbody>
     </table>
     </div>
-    ${state!=='notbought' && rows.length && bought<rows.length ? `<div class="small-muted no-print" style="margin-top:8px;">عدد المواد التي لم يصدر لها أمر شراء في هذا النطاق: ${rows.length-bought} — لا يظهر لها فرق ولا نسبة</div>` : ''}
+    ${state!=='notbought' && rows.length && bought<rows.length ? `<div class="small-muted no-print" style="margin-top:8px;">عدد البنود التي لم يصدر لها أمر شراء في هذا النطاق: ${rows.length-bought} — لا يظهر لها فرق ولا نسبة</div>` : ''}
   `;
 }
 function renderProjectCostReport(){
