@@ -3717,7 +3717,7 @@ async function triggerRestore(){
 function renderReports(){
   const el = document.getElementById('panel-reports');
   destroySearchablesIn(el);
-  const varianceCats = [...new Set(DB.materials.map(m=>m.category).filter(Boolean))].sort();
+  const reportCats = [...new Set(DB.materials.map(m=>m.category).filter(Boolean))].sort();
   el.innerHTML = `
     <div class="section-title"><div><h2>التقارير</h2><div class="desc">تقارير قابلة للطباعة والتصدير</div></div></div>
 
@@ -3755,8 +3755,19 @@ function renderReports(){
 
     <div class="card" id="card-supplierusage">
       <h3 style="margin-top:0;font-size:15px;color:var(--brick-dark);">4) تقرير استخدام الموردين</h3>
-      <div class="small-muted" style="margin-bottom:8px;">عدد المواد وقيمة أوامر الشراء الصادرة لكل مورد</div>
+      <div class="small-muted no-print" style="margin-bottom:8px;">عدد المواد وقيمة أوامر الشراء الصادرة لكل مورد — فلتر المشروع يحدد أوامر الشراء وقيمتها فقط، أما عدد المواد وسجلات الأسعار فهي على قاعدة البيانات كلها</div>
       <div class="toolbar no-print">
+        <input type="text" id="supplierUsageSearch" placeholder="بحث بالاسم أو الكود أو ما يوفّره..." oninput="renderSupplierUsageReport()">
+        <select id="supplierUsageProjFilter" onchange="renderSupplierUsageReport()">
+          <option value="">كل المشاريع</option>
+          ${DB.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}
+        </select>
+        <select id="supplierUsageStateFilter" onchange="renderSupplierUsageReport()">
+          <option value="">كل الموردين</option>
+          <option value="has">لهم أوامر شراء</option>
+          <option value="none">ليس لهم أوامر شراء</option>
+        </select>
+        <button class="btn sm ghost" onclick="clearSupplierUsageFilters()">مسح الفلاتر</button>
         <button class="btn sm secondary" onclick="printReportCard('card-supplierusage')">🖨️ طباعة</button>
         <button class="btn sm ghost" onclick="exportCsv('supplierUsageTable','تقرير_استخدام_الموردين')">تصدير CSV</button>
       </div>
@@ -3767,10 +3778,22 @@ function renderReports(){
       <h3 style="margin-top:0;font-size:15px;color:var(--brick-dark);">5) تقرير استهلاك المواد</h3>
       <div class="small-muted no-print" style="margin-bottom:8px;">الكميات المخططة لكل مادة مقابل ما استُهلك ودُفع فعلياً حسب أوامر الشراء — اعرض كل المشاريع أو اختر مشروعاً محدداً</div>
       <div class="toolbar no-print">
+        <input type="text" id="consumptionSearch" placeholder="بحث بالمادة أو الكود..." oninput="renderMaterialConsumptionReport()">
         <select id="consumptionProjFilter" onchange="renderMaterialConsumptionReport()">
           <option value="">كل المشاريع</option>
           ${DB.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}
         </select>
+        <select id="consumptionCatFilter" onchange="renderMaterialConsumptionReport()">
+          <option value="">كل الأقسام</option>
+          ${reportCats.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}
+        </select>
+        <select id="consumptionStateFilter" onchange="renderMaterialConsumptionReport()">
+          <option value="">كل المواد</option>
+          <option value="used">تم استهلاك جزء منها</option>
+          <option value="unused">لم يُستهلك منها شيء</option>
+          <option value="over">تجاوزت الكمية المخططة</option>
+        </select>
+        <button class="btn sm ghost" onclick="clearConsumptionFilters()">مسح الفلاتر</button>
         <button class="btn sm secondary" onclick="printReportCard('card-consumption')">🖨️ طباعة</button>
         <button class="btn sm ghost" onclick="exportCsv('materialConsumptionTable','تقرير_استهلاك_المواد')">تصدير CSV</button>
       </div>
@@ -3802,7 +3825,7 @@ function renderReports(){
         </select>
         <select id="priceVarianceCatFilter" onchange="renderPriceVarianceReport()">
           <option value="">كل الأقسام</option>
-          ${varianceCats.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}
+          ${reportCats.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}
         </select>
         <select id="priceVarianceMatFilter" onchange="renderPriceVarianceReport()">
           <option value="">كل المواد</option>
@@ -3830,10 +3853,21 @@ function renderReports(){
 function renderSupplierUsageReport(){
   const wrap = document.getElementById('supplierUsageWrap');
   if(!wrap) return;
-  const rows = DB.suppliers.map(s=>{
+  const projSel = document.getElementById('supplierUsageProjFilter');
+  const onlyId = projSel ? projSel.value : '';
+  const stateSel = document.getElementById('supplierUsageStateFilter');
+  const state = stateSel ? stateSel.value : '';
+  const stateName = state==='has' ? 'لهم أوامر شراء' : (state==='none' ? 'ليس لهم أوامر شراء' : 'كل الموردين');
+  const searchEl = document.getElementById('supplierUsageSearch');
+  const q = searchEl ? searchEl.value.trim().toLowerCase() : '';
+  const scopeName = onlyId ? (DB.projects.find(p=>p.id===onlyId)||{}).name || '' : '';
+  const listed = DB.suppliers.map(s=>{
     const priceRows = DB.prices.filter(p=>p.supplier_id===s.id);
     const materialIds = new Set(priceRows.map(p=>p.material_id));
-    const pos = DB.purchase_orders.filter(po=>po.supplier_id===s.id);
+    // only the two order columns follow the project filter — the price data behind
+    // the other three is company-wide, and narrowing it too would need a date the
+    // order does not carry
+    const pos = DB.purchase_orders.filter(po=> po.supplier_id===s.id && (!onlyId || po.project_id===onlyId));
     const poValue = pos.reduce((sum,po)=> sum + poGrossOf(poTotal(po)), 0);
     let lowestCount = 0;
     materialIds.forEach(mid=>{
@@ -3841,10 +3875,16 @@ function renderSupplierUsageReport(){
       if(lp.length && lp[0].supplier_id===s.id) lowestCount++;
     });
     return {s, materials:materialIds.size, prices:priceRows.length, poCount:pos.length, poValue, lowestCount};
-  }).filter(r=> r.prices>0 || r.poCount>0)
+  }).filter(r=> r.prices>0 || r.poCount>0);
+  const rows = listed
+    .filter(r=> !q || String(r.s.name||'').toLowerCase().includes(q)
+      || String(r.s.code||'').toLowerCase().includes(q)
+      || String(r.s.materials_provided||'').toLowerCase().includes(q))
+    .filter(r=> state==='has' ? r.poCount>0 : (state==='none' ? r.poCount===0 : true))
     .sort((a,b)=> b.poValue-a.poValue || b.materials-a.materials);
 
   wrap.innerHTML = `
+    <div class="small-muted" style="margin-bottom:10px;">النطاق: ${onlyId? esc(scopeName) : 'كل المشاريع'} (يشمل عمودي أوامر الشراء وقيمتهما فقط) | البحث: ${q? esc(q) : '—'} | حالة أوامر الشراء: ${stateName} | تاريخ التقرير: ${todayStr()} | عدد الموردين: ${rows.length}</div>
     <div class="table-scroll">
     <table id="supplierUsageTable">
       <thead><tr><th>المورد</th><th>عدد المواد</th><th>سجلات الأسعار</th><th>الأقل سعراً في</th><th>أوامر الشراء</th><th>قيمة أوامر الشراء</th></tr></thead>
@@ -3856,17 +3896,35 @@ function renderSupplierUsageReport(){
           <td class="mono">${r.lowestCount} مادة</td>
           <td class="mono">${r.poCount}</td>
           <td class="mono">${fmt(r.poValue)}</td>
-        </tr>`).join('') : `<tr class="empty-row"><td colspan="6">لا توجد بيانات موردين بعد</td></tr>`}
+        </tr>`).join('') : `<tr class="empty-row"><td colspan="6">${listed.length? 'لا يوجد موردون مطابقون للفلاتر المختارة' : 'لا توجد بيانات موردين بعد'}</td></tr>`}
       </tbody>
     </table>
     </div>
   `;
+}
+function clearSupplierUsageFilters(){
+  ['supplierUsageProjFilter','supplierUsageStateFilter'].forEach(id=>{
+    const s = document.getElementById(id);
+    if(s) s.value = '';
+  });
+  const q = document.getElementById('supplierUsageSearch');
+  if(q) q.value = '';
+  renderSupplierUsageReport();
 }
 function renderMaterialConsumptionReport(){
   const wrap = document.getElementById('materialConsumptionWrap');
   if(!wrap) return;
   const filterSel = document.getElementById('consumptionProjFilter');
   const onlyId = filterSel ? filterSel.value : '';
+  const catSel = document.getElementById('consumptionCatFilter');
+  const cat = catSel ? catSel.value : '';
+  const stateSel = document.getElementById('consumptionStateFilter');
+  const state = stateSel ? stateSel.value : '';
+  const stateName = state==='used' ? 'تم استهلاك جزء منها'
+    : state==='unused' ? 'لم يُستهلك منها شيء'
+    : state==='over' ? 'تجاوزت الكمية المخططة' : 'كل المواد';
+  const searchEl = document.getElementById('consumptionSearch');
+  const q = searchEl ? searchEl.value.trim().toLowerCase() : '';
   const projects = onlyId ? DB.projects.filter(p=>p.id===onlyId) : DB.projects;
   const agg = {};
   projects.forEach(p=>{
@@ -3879,7 +3937,7 @@ function renderMaterialConsumptionReport(){
       agg[k].projects.add(p.id);
     });
   });
-  const rows = Object.values(agg).map(a=>{
+  const allRows = Object.values(agg).map(a=>{
     let consumed = 0, spent = 0;
     a.projects.forEach(pid=>{
       consumed += getConsumedQty(pid, a.material.id);
@@ -3889,14 +3947,27 @@ function renderMaterialConsumptionReport(){
     a.cost = spent;
     a.remaining = a.qty - consumed;
     return a;
-  }).sort((a,b)=> b.cost-a.cost);
+  });
+  const rows = allRows
+    .filter(r=> !cat || r.material.category===cat)
+    .filter(r=> !q || String(r.material.name_ar||'').toLowerCase().includes(q)
+      || String(r.material.name_en||'').toLowerCase().includes(q)
+      || String(r.material.code||'').toLowerCase().includes(q))
+    .filter(r=> state==='used' ? r.consumed>0
+      : state==='unused' ? r.consumed===0
+      : state==='over' ? r.remaining<0 : true)
+    .sort((a,b)=> b.cost-a.cost);
   const scopeName = onlyId ? (DB.projects.find(p=>p.id===onlyId)||{}).name || '' : '';
+  const used = rows.filter(r=>r.consumed>0).length;
+  const over = rows.filter(r=>r.remaining<0).length;
+  // a filtered table must not present its total as the company's total
+  const filtered = !!(cat || q || state);
   // only the money column can be summed — the quantity columns mix units
   const totalSpent = rows.reduce((s,r)=> s + (Number(r.cost)||0), 0);
   const totalGross = poGrossOf(totalSpent);
   const vatPct = Math.round(PO_VAT_RATE*100);
   wrap.innerHTML = `
-    <div class="small-muted" style="margin-bottom:10px;">النطاق: ${onlyId? esc(scopeName) : 'كل المشاريع'} | تاريخ التقرير: ${todayStr()}</div>
+    <div class="small-muted" style="margin-bottom:10px;">النطاق: ${onlyId? esc(scopeName) : 'كل المشاريع'} | القسم: ${cat? esc(cat) : 'كل الأقسام'} | البحث: ${q? esc(q) : '—'} | حالة الاستهلاك: ${stateName} | تاريخ التقرير: ${todayStr()} | عدد المواد: ${rows.length} | تم استهلاكها: ${used} | تجاوزت الكمية المخططة: ${over}</div>
     <div class="table-scroll">
     <table id="materialConsumptionTable">
       <thead><tr><th>المادة</th><th>القسم</th><th>إجمالي الكمية</th><th>المستهلكة</th><th>المتبقي</th><th>الوحدة</th><th>المصروف فعلياً</th></tr></thead>
@@ -3909,9 +3980,9 @@ function renderMaterialConsumptionReport(){
           <td class="mono" style="${r.remaining<0?'color:#c0392b;font-weight:700;':''}">${fmt(r.remaining)}</td>
           <td>${esc(r.material.unit)}</td>
           <td class="mono">${fmt(r.cost)}</td>
-        </tr>`).join('') : `<tr class="empty-row"><td colspan="7">${onlyId? 'لا توجد كميات مسجلة في هذا المشروع بعد':'لا توجد كميات مسجلة في أي مشروع بعد'}</td></tr>`}
+        </tr>`).join('') : `<tr class="empty-row"><td colspan="7">${allRows.length? 'لا توجد مواد مطابقة للفلاتر المختارة' : (onlyId? 'لا توجد كميات مسجلة في هذا المشروع بعد':'لا توجد كميات مسجلة في أي مشروع بعد')}</td></tr>`}
         ${rows.length?`<tr style="font-weight:800;background:rgba(234,223,196,0.35);">
-          <td colspan="6" style="border-top:2px solid var(--border);">إجمالي المصروف فعلياً</td>
+          <td colspan="6" style="border-top:2px solid var(--border);">إجمالي المصروف فعلياً${filtered? ' (للمعروض بعد الفلترة)':''}</td>
           <td class="mono" style="border-top:2px solid var(--border);">${fmt(totalSpent)}</td>
         </tr>
         <tr style="font-weight:800;background:rgba(234,223,196,0.35);">
@@ -3922,6 +3993,15 @@ function renderMaterialConsumptionReport(){
     </table>
     </div>
   `;
+}
+function clearConsumptionFilters(){
+  ['consumptionProjFilter','consumptionCatFilter','consumptionStateFilter'].forEach(id=>{
+    const s = document.getElementById(id);
+    if(s) s.value = '';
+  });
+  const q = document.getElementById('consumptionSearch');
+  if(q) q.value = '';
+  renderMaterialConsumptionReport();
 }
 function renderContractorsReport(){
   const wrap = document.getElementById('contractorsReportWrap');
