@@ -3717,6 +3717,7 @@ async function triggerRestore(){
 function renderReports(){
   const el = document.getElementById('panel-reports');
   destroySearchablesIn(el);
+  const varianceCats = [...new Set(DB.materials.map(m=>m.category).filter(Boolean))].sort();
   el.innerHTML = `
     <div class="section-title"><div><h2>التقارير</h2><div class="desc">تقارير قابلة للطباعة والتصدير</div></div></div>
 
@@ -3792,11 +3793,16 @@ function renderReports(){
 
     <div class="card" id="card-pricevariance">
       <h3 style="margin-top:0;font-size:15px;color:var(--brick-dark);">7) تقرير سعر المواد في الدراسة مقابل سعر الشراء</h3>
-      <div class="small-muted no-print" style="margin-bottom:8px;">سعر كل مادة كما هو مثبّت في جدول كميات المشروع مقابل آخر سعر اشتُريت به فعلياً في أوامر شراء المشروع نفسه — الأوامر الملغية لا تُحتسب</div>
+      <div class="small-muted no-print" style="margin-bottom:8px;">سعر كل مادة كما هو مثبّت في جدول كميات المشروع مقابل آخر سعر اشتُريت به فعلياً ومتوسط أسعار أوامر شراء المشروع نفسه — الأوامر الملغية لا تُحتسب، والمتوسط مرجّح بالكميات</div>
       <div class="toolbar no-print">
+        <input type="text" id="priceVarianceSearch" placeholder="بحث بالمادة أو الكود..." oninput="renderPriceVarianceReport()">
         <select id="priceVarianceProjFilter" onchange="renderPriceVarianceReport()">
           <option value="">كل المشاريع</option>
           ${DB.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}
+        </select>
+        <select id="priceVarianceCatFilter" onchange="renderPriceVarianceReport()">
+          <option value="">كل الأقسام</option>
+          ${varianceCats.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}
         </select>
         <select id="priceVarianceMatFilter" onchange="renderPriceVarianceReport()">
           <option value="">كل المواد</option>
@@ -3807,6 +3813,7 @@ function renderReports(){
           <option value="bought">صدر لها أمر شراء</option>
           <option value="notbought">لم يصدر لها أمر شراء</option>
         </select>
+        <button class="btn sm ghost" onclick="clearPriceVarianceFilters()">مسح الفلاتر</button>
         <button class="btn sm secondary" onclick="printReportCard('card-pricevariance')">🖨️ طباعة</button>
         <button class="btn sm ghost" onclick="exportCsv('priceVarianceTable','تقرير_سعر_الجدول_مقابل_الشراء')">تصدير CSV</button>
       </div>
@@ -3984,6 +3991,22 @@ function lastPurchaseInProject(projectId, materialId){
     supplier: sup ? sup.name : '—',
   };
 }
+// what the project actually paid on average, weighted by the ordered quantities:
+// a material bought in several orders at different prices has no single real cost,
+// and the newest order alone hides the rest of it
+function averagePurchaseInProject(projectId, materialId){
+  let qty = 0, value = 0;
+  DB.purchase_orders.forEach(po=>{
+    if(po.project_id!==projectId || po.status==='ملغي') return;
+    (po.items||[]).forEach(it=>{
+      if(it.material_id!==materialId) return;
+      const q = Number(it.quantity)||0;
+      qty += q;
+      value += q * (Number(it.unit_price)||0);
+    });
+  });
+  return qty>0 ? {avg: value/qty, qty} : null;
+}
 function renderPriceVarianceReport(){
   const wrap = document.getElementById('priceVarianceWrap');
   if(!wrap) return;
@@ -3995,6 +4018,10 @@ function renderPriceVarianceReport(){
   const matSel = document.getElementById('priceVarianceMatFilter');
   const matId = matSel ? matSel.value : '';
   const matName = matId ? ((DB.materials.find(m=>m.id===matId)||{}).name_ar || '') : '';
+  const catSel = document.getElementById('priceVarianceCatFilter');
+  const cat = catSel ? catSel.value : '';
+  const searchEl = document.getElementById('priceVarianceSearch');
+  const q = searchEl ? searchEl.value.trim().toLowerCase() : '';
   const projects = onlyId ? DB.projects.filter(p=>p.id===onlyId) : DB.projects;
   const scopeRows = [];
   projects.forEach(p=>{
@@ -4004,14 +4031,18 @@ function renderPriceVarianceReport(){
       const last = lastPurchaseInProject(p.id, li.material.id);
       scopeRows.push({
         project: p, material: li.material, qty: last ? last.qty : null,
-        tablePrice, last,
+        tablePrice, last, avg: averagePurchaseInProject(p.id, li.material.id),
         diff: last ? last.price - tablePrice : null,
         pct: (last && tablePrice) ? (last.price - tablePrice)/tablePrice*100 : null,
       });
     });
   });
   const rows = scopeRows
+    .filter(r=> !cat || r.material.category===cat)
     .filter(r=> !matId || r.material.id===matId)
+    .filter(r=> !q || String(r.material.name_ar||'').toLowerCase().includes(q)
+      || String(r.material.name_en||'').toLowerCase().includes(q)
+      || String(r.material.code||'').toLowerCase().includes(q))
     .filter(r=> state==='bought' ? r.last : (state==='notbought' ? !r.last : true));
   rows.sort((a,b)=> String(a.material.category||'').localeCompare(String(b.material.category||''))
     || String(a.material.name_ar||'').localeCompare(String(b.material.name_ar||'')));
@@ -4019,7 +4050,7 @@ function renderPriceVarianceReport(){
   const bought = rows.filter(r=>r.last).length;
   const higher = rows.filter(r=>r.diff!==null && r.diff>0).length;
   const lower = rows.filter(r=>r.diff!==null && r.diff<0).length;
-  const cols = onlyId ? 11 : 12;
+  const cols = onlyId ? 12 : 13;
   const diffCell = r => {
     if(r.diff===null) return `<td class="mono">—</td>`;
     const color = r.diff>0 ? 'var(--red)' : (r.diff<0 ? 'var(--green)' : 'inherit');
@@ -4031,10 +4062,10 @@ function renderPriceVarianceReport(){
     return `<td class="mono" style="color:${color};font-weight:${r.pct?700:400};">${(r.pct>0?'+':'')+fmt(r.pct)}%</td>`;
   };
   wrap.innerHTML = `
-    <div class="small-muted" style="margin-bottom:10px;">النطاق: ${onlyId? esc(scopeName) : 'كل المشاريع'} | المادة: ${matId? esc(matName) : 'كل المواد'} | حالة الشراء: ${stateName} | تاريخ التقرير: ${todayStr()} | عدد البنود: ${rows.length} | تم شراؤها: ${bought} | أعلى من سعر الجدول: ${higher} | أقل من سعر الجدول: ${lower}</div>
+    <div class="small-muted" style="margin-bottom:10px;">النطاق: ${onlyId? esc(scopeName) : 'كل المشاريع'} | القسم: ${cat? esc(cat) : 'كل الأقسام'} | المادة: ${matId? esc(matName) : 'كل المواد'} | البحث: ${q? esc(q) : '—'} | حالة الشراء: ${stateName} | تاريخ التقرير: ${todayStr()} | عدد البنود: ${rows.length} | تم شراؤها: ${bought} | أعلى من سعر الجدول: ${higher} | أقل من سعر الجدول: ${lower}</div>
     <div class="table-scroll">
     <table id="priceVarianceTable">
-      <thead><tr>${onlyId?'':'<th>المشروع</th>'}<th>المادة</th><th>القسم</th><th>كمية آخر أمر شراء</th><th>الوحدة</th><th>سعر جدول الكميات</th><th>آخر سعر شراء</th><th>الفرق</th><th>نسبة الفرق</th><th>تاريخ آخر شراء</th><th>المورد</th><th>أمر الشراء</th></tr></thead>
+      <thead><tr>${onlyId?'':'<th>المشروع</th>'}<th>المادة</th><th>القسم</th><th>كمية آخر أمر شراء</th><th>الوحدة</th><th>سعر جدول الكميات</th><th>متوسط سعر الشراء</th><th>آخر سعر شراء</th><th>الفرق</th><th>نسبة الفرق</th><th>تاريخ آخر شراء</th><th>المورد</th><th>أمر الشراء</th></tr></thead>
       <tbody>
         ${rows.length? rows.map(r=>`<tr>
           ${onlyId?'':`<td>${esc(r.project.name)}</td>`}
@@ -4043,6 +4074,7 @@ function renderPriceVarianceReport(){
           <td class="mono">${r.qty===null? '—' : fmt(r.qty)}</td>
           <td>${esc(r.material.unit)}</td>
           <td class="mono">${fmt(r.tablePrice)}</td>
+          <td class="mono">${r.avg? fmt(r.avg.avg) : '—'}</td>
           <td class="mono">${r.last? fmt(r.last.price) : 'لم يتم الشراء'}</td>
           ${diffCell(r)}
           ${pctCell(r)}
@@ -4055,6 +4087,15 @@ function renderPriceVarianceReport(){
     </div>
     ${state!=='notbought' && rows.length && bought<rows.length ? `<div class="small-muted no-print" style="margin-top:8px;">عدد البنود التي لم يصدر لها أمر شراء في هذا النطاق: ${rows.length-bought} — لا يظهر لها فرق ولا نسبة</div>` : ''}
   `;
+}
+function clearPriceVarianceFilters(){
+  ['priceVarianceProjFilter','priceVarianceCatFilter','priceVarianceMatFilter','priceVarianceStateFilter'].forEach(id=>{
+    const s = document.getElementById(id);
+    if(s){ s.value = ''; syncSearchable(s); }
+  });
+  const q = document.getElementById('priceVarianceSearch');
+  if(q) q.value = '';
+  renderPriceVarianceReport();
 }
 function renderProjectCostReport(){
   const pid = document.getElementById('reportProjSelect').value;
