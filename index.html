@@ -569,12 +569,22 @@ select#activeProjectSelect{
   background-size:12px 12px;
 }
 select#activeProjectSelect option{background:#33291F;color:#F3ECDD;text-align:center;}
+/* emoji look different on every OS and print in colour, so the icons are inline
+   SVG stroked with currentColor — they take the palette they sit in and print black */
+.ic{
+  width:1em;height:1em;flex:none;
+  fill:none;stroke:currentColor;stroke-width:1.8;
+  stroke-linecap:round;stroke-linejoin:round;
+  vertical-align:-0.14em;
+}
 .icon-btn{
+  display:inline-flex;align-items:center;justify-content:center;
   background:none;border:none;cursor:pointer;font-size:15px;
   color:var(--ink-soft);padding:4px 7px;
   border-radius:8px;
   transition: all .15s;
 }
+.icon-btn .ic{width:17px;height:17px;}
 .icon-btn:hover{
   color:var(--brick);
   background: rgba(181,80,46,0.10);
@@ -600,6 +610,18 @@ select#activeProjectSelect option{background:#33291F;color:#F3ECDD;text-align:ce
   .titleblock, .tabs, .toolbar, .btn, .no-print{display:none !important;}
   body{background:#fff;color:#111;}
   .card{box-shadow:none;border:1px solid #999;background:#fff;backdrop-filter:none;}
+  /* .table-scroll is a scroll container, and a scroll container stops the browser
+     paginating the table inside it — that is why the header only ever printed on
+     the first page. Releasing it lets thead repeat on every page by default. */
+  .table-scroll{overflow:visible !important;border-radius:0;}
+  thead th{
+    background:#EADFC4 !important;
+    -webkit-print-color-adjust:exact;print-color-adjust:exact;
+    /* 13-column reports cannot stay nowrap once the page, not the screen,
+       is what has to fit them */
+    white-space:normal;
+  }
+  tr{page-break-inside:avoid;break-inside:avoid;}
   #reportLetterhead{display:flex !important;align-items:center;justify-content:space-between;border-bottom:2px solid #8F3D22;padding-bottom:10px;margin-bottom:16px;}
   #reportLetterhead .plh-logo img{height:60px;width:auto;border-radius:8px;object-fit:cover;}
   #reportLetterhead .plh-company{display:block;font-weight:800;font-size:18px;color:#8F3D22;font-family:'Cairo',sans-serif;}
@@ -725,10 +747,29 @@ select#activeProjectSelect option{background:#33291F;color:#F3ECDD;text-align:ce
   30%,50%,70%{transform:translateX(-7px);}
   40%,60%{transform:translateX(7px);}
 }
+/* the shell is built before Supabase answers, so for a moment the app is an
+   empty page — which reads as a crash rather than as a wait */
+.sk-note{font-size:12.5px;color:var(--ink-soft);font-family:'Cairo',sans-serif;font-weight:700;margin:0 0 14px;}
+.sk-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px;}
+.sk-box{
+  position:relative;overflow:hidden;
+  background:rgba(203,182,142,0.24);
+  border:1px solid var(--glass-border-soft);
+  border-radius:var(--radius-sm);
+}
+.sk-box::after{
+  content:'';position:absolute;inset:0;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,0.6),transparent);
+  transform:translateX(-100%);
+  animation:skShimmer 1.4s linear infinite;
+}
+@keyframes skShimmer{to{transform:translateX(100%);}}
+
 /* a wrong-password shake is exactly the kind of motion that makes some people
    ill, and the OS already tells us who they are */
 @media (prefers-reduced-motion:reduce){
   .login-card.shake,.login-error.slide-in{animation:none;}
+  .sk-box::after{animation:none;}
 }
 .login-busy{font-size:12px;color:var(--ink-soft);margin-top:11px;}
 .titleblock .headstart{
@@ -1143,6 +1184,25 @@ function fmt(n){ if(n===null||n===undefined||isNaN(n)) return "-"; return Number
 // every value that came from the database goes through esc() before it reaches
 // innerHTML — otherwise a name or a note could carry script of its own
 function esc(v){ if(v===null||v===undefined) return ''; return String(v).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+const ICONS = {
+  edit:    '<path d="M4 20h4L18.6 9.4a2.1 2.1 0 0 0-3-3L5 17v3z"/><path d="M14.6 6.4l3 3"/>',
+  trash:   '<path d="M4 7h16"/><path d="M9.5 7V5.2A1.2 1.2 0 0 1 10.7 4h2.6A1.2 1.2 0 0 1 14.5 5.2V7"/><path d="M6.5 7l.9 12.2A1.8 1.8 0 0 0 9.2 21h5.6a1.8 1.8 0 0 0 1.8-1.8L17.5 7"/><path d="M10.5 11v6M13.5 11v6"/>',
+  print:   '<path d="M7 9V3.8h10V9"/><path d="M7 18H5.2A2.2 2.2 0 0 1 3 15.8v-4.6A2.2 2.2 0 0 1 5.2 9h13.6A2.2 2.2 0 0 1 21 11.2v4.6A2.2 2.2 0 0 1 18.8 18H17"/><path d="M7 14.5h10V21H7z"/>',
+  key:     '<circle cx="8" cy="8" r="4.2"/><path d="M11 11l9 9"/><path d="M17.2 17.2l-1.8 1.8M19.4 19.4l-1.4 1.4"/>',
+  refill:  '<path d="M20.5 12a8.5 8.5 0 1 1-2.6-6.1"/><path d="M20.5 4.2v4.6h-4.6"/>',
+  save:    '<path d="M5 3.5h11L20.5 8v12.5H5z"/><path d="M8.5 3.5v6h6v-6"/><path d="M8.5 14h7v6.5h-7z"/>',
+  restore: '<path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3.5 4.2v4.6h4.6"/>',
+  up:      '<path d="M3.5 16.5l5.5-5.5 3.5 3.5 7.5-7.5"/><path d="M15 7h5.5v5.5"/>',
+  down:    '<path d="M3.5 7.5l5.5 5.5 3.5-3.5 7.5 7.5"/><path d="M15 17h5.5v-5.5"/>',
+  clock:   '<circle cx="12" cy="12" r="8.6"/><path d="M12 7.2V12l-3.2 2.1"/>',
+  warning: '<path d="M12 3.6L21.4 20H2.6z"/><path d="M12 9.4v4.6"/><path d="M12 17.2h.01"/>',
+};
+// every button already carries a title, so the graphic stays out of the
+// accessibility tree instead of being announced a second time
+function icon(name){
+  const body = ICONS[name];
+  return body ? `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${body}</svg>` : '';
+}
 function toast(msg){
   const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');
   clearTimeout(window._toastTimer); window._toastTimer=setTimeout(()=>t.classList.remove('show'),2200);
@@ -1400,6 +1460,24 @@ function buildShell(){
   const wrap = document.getElementById('panelsWrap');
   wrap.innerHTML = tabs.map(t=>`<div class="panel" id="panel-${t.id}"></div>`).join('');
   wrap.insertAdjacentHTML('beforeend', '<div class="panel" id="panel-profile"></div>');
+  showLoadSkeleton();
+}
+function showLoadSkeleton(){
+  const p = document.getElementById('panel-dashboard');
+  if(!p) return;
+  p.classList.add('active');
+  p.setAttribute('aria-busy','true');
+  p.innerHTML = `
+    <div class="sk-note">جارٍ تحميل البيانات…</div>
+    <div class="sk-kpis">${Array.from({length:6},()=>'<div class="sk-box" style="height:82px;"></div>').join('')}</div>
+    <div class="sk-box" style="height:230px;border-radius:var(--radius);"></div>
+  `;
+}
+function hideLoadSkeleton(){
+  const p = document.getElementById('panel-dashboard');
+  if(!p) return;
+  p.removeAttribute('aria-busy');
+  if(p.querySelector('.sk-note')) p.innerHTML = '';
 }
 function switchTab(id){
   CURRENT_TAB = id;
@@ -1874,8 +1952,8 @@ function renderDashboard(){
         <div class="desc">نظرة عامة على قاعدة البيانات وتكاليف المشاريع الحالية</div>
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        ${can('export')?`<button class="btn secondary" onclick="exportBackup()">💾 نسخة احتياطية</button>`:''}
-        ${can('restore')?`<button class="btn ghost" onclick="triggerRestore()">♻️ استعادة</button>`:''}
+        ${can('export')?`<button class="btn secondary" onclick="exportBackup()">${icon('save')} نسخة احتياطية</button>`:''}
+        ${can('restore')?`<button class="btn ghost" onclick="triggerRestore()">${icon('restore')} استعادة</button>`:''}
       </div>
     </div>
 
@@ -1890,16 +1968,16 @@ function renderDashboard(){
 
     <div class="two-col">
       <div class="card">
-        <h3 style="margin-top:0;font-size:15px;color:var(--brick-dark);">⚠️ تنبيهات الأسعار</h3>
+        <h3 style="margin-top:0;font-size:15px;color:var(--brick-dark);">${icon('warning')} تنبيهات الأسعار</h3>
         ${alerts.length? alerts.slice(0,8).map(a=>`
           <div class="alert-item">
-            <span class="alert-icon">${a.change>0?'📈':'📉'}</span>
+            <span class="alert-icon">${a.change>0?icon('up'):icon('down')}</span>
             <span>سعر <b>${esc(a.material.name_ar)}</b> ${a.change>0?'ارتفع':'انخفض'} بنسبة
             <b class="mono" style="color:${a.change>0?'var(--red)':'var(--green)'}">${fmt(Math.abs(a.change))}%</b>
             <span class="small-muted">(${esc(a.date)})</span></span>
           </div>`).join('') : `<div class="small-muted">لا توجد تغيرات أسعار ملحوظة حالياً</div>`}
         ${stale.length? `<div class="divider"></div><div class="small-muted" style="margin-bottom:6px;">مواد لم يتم تحديث سعرها منذ أكثر من 90 يوم:</div>
-          ${stale.slice(0,6).map(m=>`<div class="alert-item"><span class="alert-icon">🕘</span> ${esc(m.name_ar)}</div>`).join('')}`:''}
+          ${stale.slice(0,6).map(m=>`<div class="alert-item"><span class="alert-icon">${icon('clock')}</span> ${esc(m.name_ar)}</div>`).join('')}`:''}
       </div>
       <div class="card">
         <h3 style="margin-top:0;font-size:15px;color:var(--brick-dark);">أرخص الموردين (الأكثر تقديماً لأقل سعر)</h3>
@@ -1942,13 +2020,13 @@ function renderMaterials(){
       ${can('edit_master')?`<button class="btn" onclick="openMaterialForm()">+ إضافة مادة</button>`:''}
     </div>
     <div class="toolbar">
-      <input type="text" id="matSearch" placeholder="بحث بالاسم أو الكود..." oninput="materialsFilter.q=this.value; renderMaterialsTable();">
+      <input type="text" id="matSearch" placeholder="بحث بالاسم أو الكود..." value="${esc(materialsFilter.q)}" oninput="materialsFilter.q=this.value; renderMaterialsTable();">
       <select id="matCatFilter" onchange="materialsFilter.cat=this.value; renderMaterialsTable();">
         <option value="">كل الأقسام</option>
-        ${CATEGORIES.map(c=>`<option value="${c}">${c}</option>`).join('')}
+        ${CATEGORIES.map(c=>`<option value="${c}" ${materialsFilter.cat===c?'selected':''}>${c}</option>`).join('')}
       </select>
       <div class="spacer"></div>
-      <span class="small-muted">${DB.materials.length} مادة مسجلة</span>
+      <span class="small-muted" id="materialFilterCount"></span>
     </div>
     <div class="card"><div class="table-scroll" id="materialsTableWrap"></div></div>
   `;
@@ -1962,6 +2040,13 @@ function renderMaterialsTable(){
     const matchCat = !materialsFilter.cat || m.category===materialsFilter.cat;
     return matchQ && matchCat;
   });
+  const countEl = document.getElementById('materialFilterCount');
+  if(countEl){
+    const filtering = !!(materialsFilter.cat || materialsFilter.q.trim());
+    countEl.textContent = filtering
+      ? `معروض ${rows.length} من ${DB.materials.length} مادة`
+      : `${DB.materials.length} مادة مسجلة`;
+  }
   wrap.innerHTML = `
     <table>
       <thead><tr><th>الكود</th><th>اسم المادة</th><th>الماركة</th><th>القسم</th><th>الوحدة</th><th>آخر سعر</th><th>الحالة</th><th></th></tr></thead>
@@ -1978,8 +2063,8 @@ function renderMaterialsTable(){
             <td class="mono">${lastPrice!==null? fmt(lastPrice):'—'}</td>
             <td><span class="pill ${m.status==='Active'?'ok':'off'}">${m.status==='Active'?'فعّال':'موقوف'}</span></td>
             <td>
-              ${can('edit_master')?`<button class="icon-btn" onclick="openMaterialForm('${m.id}')" title="تعديل">✏️</button>`:''}
-              ${can('delete_any')?`<button class="icon-btn" onclick="deleteMaterial('${m.id}')" title="حذف">🗑️</button>`:''}
+              ${can('edit_master')?`<button class="icon-btn" onclick="openMaterialForm('${m.id}')" title="تعديل">${icon('edit')}</button>`:''}
+              ${can('delete_any')?`<button class="icon-btn" onclick="deleteMaterial('${m.id}')" title="حذف">${icon('trash')}</button>`:''}
             </td>
           </tr>`;
         }).join('') : `<tr class="empty-row"><td colspan="7">لا توجد مواد مطابقة</td></tr>`}
@@ -2116,9 +2201,9 @@ function renderSuppliers(){
       ${can('edit_master')?`<button class="btn" onclick="openSupplierForm()">+ إضافة مورد</button>`:''}
     </div>
     <div class="toolbar">
-      <input type="text" placeholder="بحث بالاسم..." oninput="suppliersFilter.q=this.value; renderSuppliersTable();">
+      <input type="text" placeholder="بحث بالاسم..." value="${esc(suppliersFilter.q)}" oninput="suppliersFilter.q=this.value; renderSuppliersTable();">
       <div class="spacer"></div>
-      <span class="small-muted">${DB.suppliers.length} مورد مسجل</span>
+      <span class="small-muted" id="supplierFilterCount"></span>
     </div>
     <div class="card"><div class="table-scroll" id="suppliersTableWrap"></div></div>
   `;
@@ -2128,6 +2213,12 @@ function renderSuppliersTable(){
   const wrap = document.getElementById('suppliersTableWrap');
   const q = suppliersFilter.q.trim().toLowerCase();
   let rows = DB.suppliers.filter(s=> !q || s.name.toLowerCase().includes(q) || (s.materials_provided||'').toLowerCase().includes(q));
+  const countEl = document.getElementById('supplierFilterCount');
+  if(countEl){
+    countEl.textContent = q
+      ? `معروض ${rows.length} من ${DB.suppliers.length} مورد`
+      : `${DB.suppliers.length} مورد مسجل`;
+  }
   wrap.innerHTML = `
     <table>
       <thead><tr><th>الكود</th><th>اسم المورد</th><th>النوع</th><th>يوفّر</th><th>التواصل</th><th>التقييم</th><th>الحالة</th><th></th></tr></thead>
@@ -2142,8 +2233,8 @@ function renderSuppliersTable(){
             <td>${'★'.repeat(Math.max(0,Math.min(5,s.rating|0)))}${'☆'.repeat(Math.max(0,5-Math.min(5,s.rating|0)))}</td>
             <td><span class="pill ${s.status==='Active'?'ok':'off'}">${s.status==='Active'?'فعّال':'موقوف'}</span></td>
             <td>
-              ${can('edit_master')?`<button class="icon-btn" onclick="openSupplierForm('${s.id}')" title="تعديل">✏️</button>`:''}
-              ${can('delete_any')?`<button class="icon-btn" onclick="deleteSupplier('${s.id}')" title="حذف">🗑️</button>`:''}
+              ${can('edit_master')?`<button class="icon-btn" onclick="openSupplierForm('${s.id}')" title="تعديل">${icon('edit')}</button>`:''}
+              ${can('delete_any')?`<button class="icon-btn" onclick="deleteSupplier('${s.id}')" title="حذف">${icon('trash')}</button>`:''}
             </td>
           </tr>`).join('') : `<tr class="empty-row"><td colspan="8">لا يوجد موردون مطابقون</td></tr>`}
       </tbody>
@@ -2299,7 +2390,7 @@ function renderPricesTable(){
             <td>${p.includes_vat?'✔️':'—'}</td>
             <td>${p.includes_transport?'✔️':'—'}</td>
             <td class="small-muted">${p.quote_ref?esc(p.quote_ref):'-'}</td>
-            <td>${can('delete_any')?`<button class="icon-btn" onclick="deletePrice('${p.id}')" title="حذف">🗑️</button>`:''}</td>
+            <td>${can('delete_any')?`<button class="icon-btn" onclick="deletePrice('${p.id}')" title="حذف">${icon('trash')}</button>`:''}</td>
           </tr>`;
         }).join('') : `<tr class="empty-row"><td colspan="10">${DB.prices.length? 'لا توجد أسعار مطابقة للفلاتر المختارة':'لا توجد أسعار مسجلة بعد'}</td></tr>`}
       </tbody>
@@ -2394,8 +2485,8 @@ function renderProjectsTable(){
             <td class="mono">${p.units?esc(p.units):'-'}</td>
             <td><span class="pill ${p.status==='نشط'?'ok':'info'}">${esc(p.status||'نشط')}</span></td>
             <td>
-              ${can('edit_projects')?`<button class="icon-btn" onclick="openProjectForm('${p.id}')" title="تعديل">✏️</button>`:''}
-              ${can('delete_any')?`<button class="icon-btn" onclick="deleteProject('${p.id}')" title="حذف">🗑️</button>`:''}
+              ${can('edit_projects')?`<button class="icon-btn" onclick="openProjectForm('${p.id}')" title="تعديل">${icon('edit')}</button>`:''}
+              ${can('delete_any')?`<button class="icon-btn" onclick="deleteProject('${p.id}')" title="حذف">${icon('trash')}</button>`:''}
             </td>
           </tr>`).join('') : `<tr class="empty-row"><td colspan="8">لا توجد مشاريع بعد</td></tr>`}
       </tbody>
@@ -2665,8 +2756,8 @@ function renderCosting(){
             <td class="mono">${fmt(paid)}</td>
             <td class="mono"${rest===0?' style="color:var(--green);font-weight:700;"':''}>${fmt(rest)}</td>
             <td>
-              ${can('edit_quantities')?`<button class="icon-btn" onclick="openContractorForm('${project.id}','${c.id}')" title="تعديل">✏️</button>
-              <button class="icon-btn" onclick="deleteContractorRow('${project.id}','${c.id}')" title="حذف">🗑️</button>`:''}
+              ${can('edit_quantities')?`<button class="icon-btn" onclick="openContractorForm('${project.id}','${c.id}')" title="تعديل">${icon('edit')}</button>
+              <button class="icon-btn" onclick="deleteContractorRow('${project.id}','${c.id}')" title="حذف">${icon('trash')}</button>`:''}
             </td>
           </tr>`;
           }).join('') : `<tr class="empty-row"><td colspan="6">لا يوجد مقاولون مضافون لهذا المشروع بعد</td></tr>`}
@@ -2761,8 +2852,8 @@ function renderQtyTable(){
             <td class="mono">${fmt(unitPrice)}</td>
             <td class="mono">${fmt(total)}</td>
             <td>
-              ${can('edit_quantities')?`<button class="icon-btn" onclick="openQtyForm('${project.id}','${r.id}')" title="تعديل">✏️</button>
-              <button class="icon-btn" onclick="deleteQtyRow('${project.id}','${r.id}')" title="حذف">🗑️</button>`:''}
+              ${can('edit_quantities')?`<button class="icon-btn" onclick="openQtyForm('${project.id}','${r.id}')" title="تعديل">${icon('edit')}</button>
+              <button class="icon-btn" onclick="deleteQtyRow('${project.id}','${r.id}')" title="حذف">${icon('trash')}</button>`:''}
             </td>
           </tr>`;
         }).join('') : `<tr class="empty-row"><td colspan="10">${all.length? 'لا توجد بنود مطابقة للبحث':'لا توجد بنود كميات مضافة لهذا المشروع بعد'}</td></tr>`}
@@ -3088,9 +3179,9 @@ function renderPOTable(){
             <td class="mono">${fmt(poGrossOf(poTotal(po)))}</td>
             <td><span class="pill ${statusClass}">${esc(po.status)}</span></td>
             <td class="no-export">
-              <button class="icon-btn" onclick="printPO('${po.id}')" title="طباعة / تصدير PDF">🖨️</button>
-              ${can('edit_po')?`<button class="icon-btn" onclick="openPOForm('${po.id}')" title="تعديل">✏️</button>
-              <button class="icon-btn" onclick="deletePO('${po.id}')" title="حذف">🗑️</button>`:''}
+              <button class="icon-btn" onclick="printPO('${po.id}')" title="طباعة / تصدير PDF">${icon('print')}</button>
+              ${can('edit_po')?`<button class="icon-btn" onclick="openPOForm('${po.id}')" title="تعديل">${icon('edit')}</button>
+              <button class="icon-btn" onclick="deletePO('${po.id}')" title="حذف">${icon('trash')}</button>`:''}
             </td>
           </tr>`;
         }).join('') : `<tr class="empty-row"><td colspan="8">${DB.purchase_orders.length? 'لا توجد أوامر شراء مطابقة للبحث':'لا توجد أوامر شراء مسجلة بعد'}</td></tr>`}
@@ -3156,7 +3247,7 @@ function openPOForm(id){
       <label class="label-font" style="font-weight:700;font-size:13px;color:var(--brick-dark);">بنود الأمر</label>
       <button class="btn sm secondary" onclick="poAddItem()">+ إضافة مادة</button>
     </div>
-    <div class="small-muted" style="margin-bottom:6px;">سعر الوحدة يتعبى تلقائياً من آخر سعر مسجّل لهذا المورد في تبويب "الأسعار"، وتقدر تعدّله يدوياً أو تضغط ↻ لسحبه من جديد.</div>
+    <div class="small-muted" style="margin-bottom:6px;">سعر الوحدة يتعبى تلقائياً من آخر سعر مسجّل لهذا المورد في تبويب "الأسعار"، وتقدر تعدّله يدوياً أو تضغط ${icon('refill')} لسحبه من جديد.</div>
     <div id="poItemsWrap"></div>
     <div class="po-totals">
       <div class="row"><span>الإجمالي</span><span class="mono" id="poTotalPreview">0</span></div>
@@ -3196,8 +3287,8 @@ function poRenderItems(){
             <td><input class="po-price-input" type="number" step="0.01" value="${esc(it.unit_price)}" oninput="poItemFieldChanged(${idx},'unit_price',this.value)"></td>
             <td class="mono" id="poRowTotal_${idx}">${fmt((Number(it.quantity)||0)*(Number(it.unit_price)||0))}</td>
             <td>
-              <button class="icon-btn" onclick="poRefillItemPrice(${idx})" title="سحب آخر سعر مخزّن لهذا المورد">↻</button>
-              <button class="icon-btn" onclick="poRemoveItem(${idx})" title="حذف البند">🗑️</button>
+              <button class="icon-btn" onclick="poRefillItemPrice(${idx})" title="سحب آخر سعر مخزّن لهذا المورد">${icon('refill')}</button>
+              <button class="icon-btn" onclick="poRemoveItem(${idx})" title="حذف البند">${icon('trash')}</button>
             </td>
           </tr>`;}).join('')}
       </tbody>
@@ -3732,7 +3823,7 @@ function renderReports(){
           <option value="">اختر مشروعاً...</option>
           ${DB.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}
         </select>
-        <button class="btn sm secondary" onclick="printReportCard('card-projectcost')">🖨️ طباعة</button>
+        <button class="btn sm secondary" onclick="printReportCard('card-projectcost')">${icon('print')} طباعة</button>
         <button class="btn sm ghost" onclick="exportCsv('projectCostTable','تقرير_تكلفة_مشروع')">تصدير CSV</button>
       </div>
     </div>
@@ -3745,7 +3836,7 @@ function renderReports(){
           <option value="">اختر مادة...</option>
           ${DB.materials.map(m=>`<option value="${m.id}">${esc(m.name_ar)}</option>`).join('')}
         </select>
-        <button class="btn sm secondary" onclick="printReportCard('card-mathistory')">🖨️ طباعة</button>
+        <button class="btn sm secondary" onclick="printReportCard('card-mathistory')">${icon('print')} طباعة</button>
         <button class="btn sm ghost" onclick="exportCsv('matHistoryTable','تاريخ_أسعار_مادة')">تصدير CSV</button>
       </div>
     </div>
@@ -3753,7 +3844,7 @@ function renderReports(){
 
     <div class="card" id="card-costm2">
       <h3 style="margin-top:0;font-size:15px;color:var(--brick-dark);">3) تكلفة المتر المربع — مقارنة كل المشاريع</h3>
-      <div class="toolbar no-print"><button class="btn sm secondary" onclick="printReportCard('card-costm2')">🖨️ طباعة</button></div>
+      <div class="toolbar no-print"><button class="btn sm secondary" onclick="printReportCard('card-costm2')">${icon('print')} طباعة</button></div>
       <div id="costM2ReportWrap"></div>
     </div>
 
@@ -3776,7 +3867,7 @@ function renderReports(){
           <option value="none">ليس لهم أوامر شراء</option>
         </select>
         <button class="btn sm ghost" onclick="clearSupplierUsageFilters()">مسح الفلاتر</button>
-        <button class="btn sm secondary" onclick="printReportCard('card-supplierusage')">🖨️ طباعة</button>
+        <button class="btn sm secondary" onclick="printReportCard('card-supplierusage')">${icon('print')} طباعة</button>
         <button class="btn sm ghost" onclick="exportCsv('supplierUsageTable','تقرير_استخدام_الموردين')">تصدير CSV</button>
       </div>
       <div id="supplierUsageWrap"></div>
@@ -3802,7 +3893,7 @@ function renderReports(){
           <option value="over">تجاوزت الكمية المخططة</option>
         </select>
         <button class="btn sm ghost" onclick="clearConsumptionFilters()">مسح الفلاتر</button>
-        <button class="btn sm secondary" onclick="printReportCard('card-consumption')">🖨️ طباعة</button>
+        <button class="btn sm secondary" onclick="printReportCard('card-consumption')">${icon('print')} طباعة</button>
         <button class="btn sm ghost" onclick="exportCsv('materialConsumptionTable','تقرير_استهلاك_المواد')">تصدير CSV</button>
       </div>
       <div id="materialConsumptionWrap"></div>
@@ -3816,7 +3907,7 @@ function renderReports(){
           <option value="">كل المشاريع</option>
           ${DB.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}
         </select>
-        <button class="btn sm secondary" onclick="printReportCard('card-contractors')">🖨️ طباعة</button>
+        <button class="btn sm secondary" onclick="printReportCard('card-contractors')">${icon('print')} طباعة</button>
         <button class="btn sm ghost" onclick="exportCsv('contractorsReportTable','تقرير_المقاولين')">تصدير CSV</button>
       </div>
       <div id="contractorsReportWrap"></div>
@@ -3845,7 +3936,7 @@ function renderReports(){
           <option value="notbought">لم يصدر لها أمر شراء</option>
         </select>
         <button class="btn sm ghost" onclick="clearPriceVarianceFilters()">مسح الفلاتر</button>
-        <button class="btn sm secondary" onclick="printReportCard('card-pricevariance')">🖨️ طباعة</button>
+        <button class="btn sm secondary" onclick="printReportCard('card-pricevariance')">${icon('print')} طباعة</button>
         <button class="btn sm ghost" onclick="exportCsv('priceVarianceTable','تقرير_سعر_الجدول_مقابل_الشراء')">تصدير CSV</button>
       </div>
       <div id="priceVarianceWrap"></div>
@@ -4307,7 +4398,7 @@ function renderUsers(){
   }
   el.innerHTML = `
     <div class="section-title">
-      <div><h2>إدارة المستخدمين</h2><div class="desc">أي حساب جديد يعمل تسجيل دخول لأول مرة يظهر هنا تلقائياً بدور «في انتظار تحديد الدور» — حدد دوره من القائمة. إنشاء الحساب نفسه (بريد وكلمة مرور) يتم من زر «+ إضافة مستخدم»، وتغيير البريد يتم من ✏️ بجانب المستخدم فينتقل معه دوره ومشروعه وسجل تغييراته</div></div>
+      <div><h2>إدارة المستخدمين</h2><div class="desc">أي حساب جديد يعمل تسجيل دخول لأول مرة يظهر هنا تلقائياً بدور «في انتظار تحديد الدور» — حدد دوره من القائمة. إنشاء الحساب نفسه (بريد وكلمة مرور) يتم من زر «+ إضافة مستخدم»، وتغيير البريد يتم من ${icon('edit')} بجانب المستخدم فينتقل معه دوره ومشروعه وسجل تغييراته</div></div>
       <button class="btn" onclick="openUserForm()">+ إضافة مستخدم</button>
     </div>
     <div class="card">
@@ -4363,9 +4454,9 @@ function renderUsersTable(){
               </div>
             </td>
             <td>
-              <button class="icon-btn" onclick="openEmailForm(${i})" title="تغيير البريد الإلكتروني">✏️</button>
-              <button class="icon-btn" onclick="resetUserPassword(${i})" title="إرسال رابط إعادة تعيين كلمة المرور">🔑</button>
-              ${(!isMe&&!lastAdmin)?`<button class="icon-btn" onclick="deleteUser(${i})" title="حذف نهائي — المستخدم وحسابه">🗑️</button>`:''}
+              <button class="icon-btn" onclick="openEmailForm(${i})" title="تغيير البريد الإلكتروني">${icon('edit')}</button>
+              <button class="icon-btn" onclick="resetUserPassword(${i})" title="إرسال رابط إعادة تعيين كلمة المرور">${icon('key')}</button>
+              ${(!isMe&&!lastAdmin)?`<button class="icon-btn" onclick="deleteUser(${i})" title="حذف نهائي — المستخدم وحسابه">${icon('trash')}</button>`:''}
             </td>
           </tr>`;
         }).join('') : `<tr class="empty-row"><td colspan="5">لا يوجد مستخدمون بعد — أضف أول مستخدم</td></tr>`}
@@ -4816,9 +4907,16 @@ function buildPrintLetterhead(){
 async function init(){
   await loadRole();
   buildShell();
-  buildPrintLetterhead();
-  await loadAll();
-  renderProjectSelector();
+  try {
+    buildPrintLetterhead();
+    await loadAll();
+    renderProjectSelector();
+  } finally {
+    // loadKey swallows network errors and returns empty data, so the load
+    // normally always completes — but if anything here ever throws, a shimmer
+    // left on screen reads as a frozen app rather than a slow one
+    hideLoadSkeleton();
+  }
   switchTab('dashboard');
 }
 
