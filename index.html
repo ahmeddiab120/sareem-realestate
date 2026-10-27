@@ -1817,10 +1817,14 @@ function renderDashboard(){
   const totalPrices = DB.prices.length;
   const totalProjects = DB.projects.length;
 
-  let totalValue = 0, projWithArea = [], costs=[];
+  let totalValue = 0, doneValue = 0, doneCount = 0, projWithArea = [], costs=[];
   DB.projects.forEach(p=>{
     const c = computeProjectCost(p.id);
-    totalValue += c.finalTotal;
+    // a completed project is closed money, so the dashboard total tracks only
+    // what is still open — but the excluded part stays visible next to it,
+    // otherwise the number drops with no way to tell why
+    if(p.status==='مكتمل'){ doneValue += c.finalTotal; doneCount++; }
+    else totalValue += c.finalTotal;
     if(c.costPerM2) projWithArea.push(c.costPerM2);
     costs.push({project:p, c});
   });
@@ -1880,7 +1884,7 @@ function renderDashboard(){
       <div class="kpi"><div class="n">${totalMaterials}</div><div class="l">المواد المسجلة</div></div>
       <div class="kpi"><div class="n">${totalSuppliers}</div><div class="l">الموردون</div></div>
       <div class="kpi"><div class="n">${totalPrices}</div><div class="l">سجلات الأسعار</div></div>
-      <div class="kpi"><div class="n mono">${fmt(totalValue)}</div><div class="l">إجمالي قيمة مواد كل المشاريع (ر.س)</div></div>
+      <div class="kpi"><div class="n mono">${fmt(totalValue)}</div><div class="l">إجمالي قيمة مواد المشاريع غير المكتملة (ر.س)${doneCount? `<div style="font-size:10px;font-weight:600;opacity:.8;margin-top:3px;">باستثناء المشاريع المكتملة (${doneCount}) بقيمة ${fmt(doneValue)}</div>`:''}</div></div>
       <div class="kpi"><div class="n mono">${avgCostM2? fmt(avgCostM2):'-'}</div><div class="l">متوسط تكلفة المتر² (ر.س)</div></div>
     </div>
 
