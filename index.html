@@ -3755,12 +3755,16 @@ function renderReports(){
 
     <div class="card" id="card-supplierusage">
       <h3 style="margin-top:0;font-size:15px;color:var(--brick-dark);">4) تقرير استخدام الموردين</h3>
-      <div class="small-muted no-print" style="margin-bottom:8px;">عدد المواد وقيمة أوامر الشراء الصادرة لكل مورد — فلتر المشروع يحدد أوامر الشراء وقيمتها فقط، أما عدد المواد وسجلات الأسعار فهي على قاعدة البيانات كلها</div>
+      <div class="small-muted no-print" style="margin-bottom:8px;">عدد المواد وقيمة أوامر الشراء الصادرة لكل مورد — فلتر المشروع يحدد أوامر الشراء وقيمتها فقط، أما عدد المواد وسجلات الأسعار فهي على قاعدة البيانات كلها. فلتر القسم يحسب مواد ذلك القسم في كل الأعمدة، وتصبح قيمة أوامر الشراء هي قيمة بنود القسم المختار وحدها دون باقي بنود الأمر</div>
       <div class="toolbar no-print">
         <input type="text" id="supplierUsageSearch" placeholder="بحث بالاسم أو الكود أو ما يوفّره..." oninput="renderSupplierUsageReport()">
         <select id="supplierUsageProjFilter" onchange="renderSupplierUsageReport()">
           <option value="">كل المشاريع</option>
           ${DB.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}
+        </select>
+        <select id="supplierUsageCatFilter" onchange="renderSupplierUsageReport()">
+          <option value="">كل الأقسام</option>
+          ${reportCats.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}
         </select>
         <select id="supplierUsageStateFilter" onchange="renderSupplierUsageReport()">
           <option value="">كل الموردين</option>
@@ -3858,24 +3862,37 @@ function renderSupplierUsageReport(){
   const stateSel = document.getElementById('supplierUsageStateFilter');
   const state = stateSel ? stateSel.value : '';
   const stateName = state==='has' ? 'لهم أوامر شراء' : (state==='none' ? 'ليس لهم أوامر شراء' : 'كل الموردين');
+  const catSel = document.getElementById('supplierUsageCatFilter');
+  const cat = catSel ? catSel.value : '';
+  const catIds = cat ? new Set(DB.materials.filter(m=>m.category===cat).map(m=>m.id)) : null;
   const searchEl = document.getElementById('supplierUsageSearch');
   const q = searchEl ? searchEl.value.trim().toLowerCase() : '';
   const scopeName = onlyId ? (DB.projects.find(p=>p.id===onlyId)||{}).name || '' : '';
   const listed = DB.suppliers.map(s=>{
-    const priceRows = DB.prices.filter(p=>p.supplier_id===s.id);
+    const supplierPrices = DB.prices.filter(p=>p.supplier_id===s.id);
+    const priceRows = catIds ? supplierPrices.filter(p=> catIds.has(p.material_id)) : supplierPrices;
     const materialIds = new Set(priceRows.map(p=>p.material_id));
     // only the two order columns follow the project filter — the price data behind
     // the other three is company-wide, and narrowing it too would need a date the
     // order does not carry
     const pos = DB.purchase_orders.filter(po=> po.supplier_id===s.id && (!onlyId || po.project_id===onlyId));
-    const poValue = pos.reduce((sum,po)=> sum + poGrossOf(poTotal(po)), 0);
+    // an order can mix sections, so a section filter values only its own lines
+    const poLines = pos
+      .map(po=> ({lines: catIds ? (po.items||[]).filter(it=> catIds.has(it.material_id)) : (po.items||[])}))
+      .filter(x=> catIds ? x.lines.length : true);
+    const poCount = poLines.length;
+    const poValue = poLines.reduce((sum,x)=> sum + poGrossOf(poNetTotal(x.lines)), 0);
     let lowestCount = 0;
     materialIds.forEach(mid=>{
       const lp = latestPricesPerSupplier(mid);
       if(lp.length && lp[0].supplier_id===s.id) lowestCount++;
     });
-    return {s, materials:materialIds.size, prices:priceRows.length, poCount:pos.length, poValue, lowestCount};
+    return {s, materials:materialIds.size, prices:priceRows.length, poCount, poValue, lowestCount};
   }).filter(r=> r.prices>0 || r.poCount>0);
+  // a section filter can empty the list even when the database is full, and the
+  // empty message must not then claim there is no supplier data at all
+  const hasAnyData = DB.suppliers.some(s=> DB.prices.some(p=>p.supplier_id===s.id)
+    || DB.purchase_orders.some(po=>po.supplier_id===s.id));
   const rows = listed
     .filter(r=> !q || String(r.s.name||'').toLowerCase().includes(q)
       || String(r.s.code||'').toLowerCase().includes(q)
@@ -3884,7 +3901,7 @@ function renderSupplierUsageReport(){
     .sort((a,b)=> b.poValue-a.poValue || b.materials-a.materials);
 
   wrap.innerHTML = `
-    <div class="small-muted" style="margin-bottom:10px;">النطاق: ${onlyId? esc(scopeName) : 'كل المشاريع'} (يشمل عمودي أوامر الشراء وقيمتهما فقط) | البحث: ${q? esc(q) : '—'} | حالة أوامر الشراء: ${stateName} | تاريخ التقرير: ${todayStr()} | عدد الموردين: ${rows.length}</div>
+    <div class="small-muted" style="margin-bottom:10px;">النطاق: ${onlyId? esc(scopeName) : 'كل المشاريع'} (يشمل عمودي أوامر الشراء وقيمتهما فقط) | القسم: ${cat? esc(cat) : 'كل الأقسام'} | البحث: ${q? esc(q) : '—'} | حالة أوامر الشراء: ${stateName} | تاريخ التقرير: ${todayStr()} | عدد الموردين: ${rows.length}</div>
     <div class="table-scroll">
     <table id="supplierUsageTable">
       <thead><tr><th>المورد</th><th>عدد المواد</th><th>سجلات الأسعار</th><th>الأقل سعراً في</th><th>أوامر الشراء</th><th>قيمة أوامر الشراء</th></tr></thead>
@@ -3896,14 +3913,14 @@ function renderSupplierUsageReport(){
           <td class="mono">${r.lowestCount} مادة</td>
           <td class="mono">${r.poCount}</td>
           <td class="mono">${fmt(r.poValue)}</td>
-        </tr>`).join('') : `<tr class="empty-row"><td colspan="6">${listed.length? 'لا يوجد موردون مطابقون للفلاتر المختارة' : 'لا توجد بيانات موردين بعد'}</td></tr>`}
+        </tr>`).join('') : `<tr class="empty-row"><td colspan="6">${hasAnyData? 'لا يوجد موردون مطابقون للفلاتر المختارة' : 'لا توجد بيانات موردين بعد'}</td></tr>`}
       </tbody>
     </table>
     </div>
   `;
 }
 function clearSupplierUsageFilters(){
-  ['supplierUsageProjFilter','supplierUsageStateFilter'].forEach(id=>{
+  ['supplierUsageProjFilter','supplierUsageCatFilter','supplierUsageStateFilter'].forEach(id=>{
     const s = document.getElementById(id);
     if(s) s.value = '';
   });
