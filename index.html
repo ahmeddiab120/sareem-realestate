@@ -5049,15 +5049,27 @@ async function doLogout(){
 }
 
 // a session left open on a shared or forgotten device is an open door,
-// so half an hour without any touch of the page ends it
-const IDLE_LIMIT_MS = 30 * 60 * 1000;
+// so a quarter of an hour without any touch of the page ends it
+const IDLE_LIMIT_MS = 15 * 60 * 1000;
+const LAST_ACTIVITY_KEY = 'sareemLastActivity';
 let _idleTimer = null;
+let _lastActivityWrite = 0;
 function armIdleTimer(){
   clearTimeout(_idleTimer);
   _idleTimer = setTimeout(()=>{
     sessionStorage.setItem('sareemIdle', '1');
+    localStorage.removeItem(LAST_ACTIVITY_KEY);
     sb.auth.signOut();
   }, IDLE_LIMIT_MS);
+  // the timer above only lives while this tab is open — closing it or letting the
+  // device sleep destroys it before it ever signs out, so the last-activity stamp
+  // is persisted too and boot() checks it on the way back in; the write is
+  // throttled so continuous scrolling doesn't hammer localStorage
+  const now = Date.now();
+  if (now - _lastActivityWrite > 10000) {
+    _lastActivityWrite = now;
+    localStorage.setItem(LAST_ACTIVITY_KEY, String(now));
+  }
 }
 function startIdleWatch(){
   ['pointerdown','keydown','touchstart','wheel'].forEach(ev=>
@@ -5150,7 +5162,20 @@ async function changeRecoveryPassword(){
   }
   if (sessionStorage.getItem('sareemRecovery')) { showRecoveryGate(); return; }
   const { data: { session } } = await sb.auth.getSession();
-  if (session) await startApp();
+  if (session) {
+    // a cached session survives a closed tab, and the in-page idle timer died
+    // with that tab without ever signing out — so before trusting the session,
+    // measure how long the device has really been idle from the persisted stamp
+    // and end a forgotten login here instead of resuming into the data
+    const last = Number(localStorage.getItem(LAST_ACTIVITY_KEY));
+    if (last && Date.now() - last > IDLE_LIMIT_MS) {
+      sessionStorage.setItem('sareemIdle', '1');
+      await sb.auth.signOut();
+      location.reload();
+      return;
+    }
+    await startApp();
+  }
 })();
 </script>
 </body>
