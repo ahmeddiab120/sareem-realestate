@@ -3270,10 +3270,21 @@ function openPOForm(id){
   `, true);
   poRenderItems();
 }
+// a price row is the only place the supplier↔material relationship is recorded, so it
+// defines what a supplier "has". null means unrestricted: no supplier picked yet, or the
+// supplier has no prices at all — in which case blocking the picker would make it
+// impossible to raise an order with manually typed prices.
+function supplierMaterialIds(supplierId){
+  if(!supplierId) return null;
+  const ids = new Set(DB.prices.filter(p=>p.supplier_id===supplierId).map(p=>p.material_id));
+  return ids.size ? ids : null;
+}
 function poRenderItems(){
   const wrap = document.getElementById('poItemsWrap');
   if(!wrap) return;
   const supplierId = document.getElementById('f_supplier') ? document.getElementById('f_supplier').value : '';
+  const supplierName = supplierId ? (DB.suppliers.find(s=>s.id===supplierId)||{}).name || '' : '';
+  const allowed = supplierMaterialIds(supplierId);
   destroySearchablesIn(wrap);
   wrap.innerHTML = `
     <div class="table-scroll">
@@ -3282,12 +3293,15 @@ function poRenderItems(){
       <tbody>
         ${poDraftItems.map((it,idx)=>{
           const itMat = DB.materials.find(x=>x.id===it.material_id);
+          // a material already sitting on the row stays pickable even when the supplier
+          // has no price for it, so switching supplier can never blank an existing line
+          const opts = DB.materials.filter(m=> !allowed || allowed.has(m.id) || m.id===it.material_id);
           return `
           <tr>
             <td>
               <select class="po-mat-select" onchange="poItemMaterialChanged(${idx}, this.value)">
                 <option value="">اختر مادة...</option>
-                ${DB.materials.map(m=>`<option value="${m.id}" ${it.material_id===m.id?'selected':''}>${esc(m.name_ar)}</option>`).join('')}
+                ${opts.map(m=>`<option value="${m.id}" ${it.material_id===m.id?'selected':''}>${esc(m.name_ar)}</option>`).join('')}
               </select>
             </td>
             <td>${itMat&&itMat.brand?esc(itMat.brand):'-'}</td>
@@ -3303,6 +3317,11 @@ function poRenderItems(){
       </tbody>
     </table>
     </div>
+    ${supplierId ? `<div class="small-muted" style="margin:6px 2px 0;">${
+      allowed
+        ? `${DB.materials.filter(m=>allowed.has(m.id)).length} مادة من أصل ${DB.materials.length} — المواد المسعّرة لدى ${esc(supplierName)} فقط`
+        : `لم تُسجَّل أي أسعار لدى ${esc(supplierName)} بعد، لذلك تظهر كل المواد (${DB.materials.length}) — أضف أسعاره من تبويب «الأسعار» لقصر القائمة عليها`
+    }</div>` : ''}
   `;
   updatePOTotalsPreview(poNetTotal(poDraftItems));
   window._poCurrentSupplier = supplierId;
