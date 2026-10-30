@@ -878,7 +878,9 @@ select#activeProjectSelect option{background:#33291F;color:#F3ECDD;text-align:ce
   background:transparent;color:#F3ECDD;
   border:1px solid rgba(243,236,221,0.28);
   transition: all .2s cubic-bezier(0.25,0.1,0.25,1);
+  display:flex;align-items:center;gap:8px;
 }
+.titleblock .usermenu-pop button .ic{width:15px;height:15px;flex:0 0 auto;}
 @media (hover:hover){
   .titleblock .btn-menu:hover{
     border-color: var(--amber);color:#F3ECDD;background: rgba(192,138,46,0.22);
@@ -1215,7 +1217,7 @@ if (!window.storage) {
       <button type="button" class="userchip" id="userChip" aria-haspopup="true" aria-expanded="false" onclick="toggleUserMenu()"></button>
       <div class="usermenu-pop" id="userMenuPop" hidden>
         <button type="button" class="btn-menu" id="profileBtn" onclick="goProfile()">الملف الشخصي</button>
-        <button type="button" class="btn-logout" id="logoutBtn" onclick="doLogout()">خروج</button>
+        <button type="button" class="btn-logout" id="logoutBtn" onclick="doLogout()">تسجيل الخروج</button>
       </div>
     </div>
   </div>
@@ -1279,6 +1281,8 @@ const ICONS = {
   down:    '<path d="M3.5 7.5l5.5 5.5 3.5-3.5 7.5 7.5"/><path d="M15 17h5.5v-5.5"/>',
   clock:   '<circle cx="12" cy="12" r="8.6"/><path d="M12 7.2V12l-3.2 2.1"/>',
   warning: '<path d="M12 3.6L21.4 20H2.6z"/><path d="M12 9.4v4.6"/><path d="M12 17.2h.01"/>',
+  user:    '<circle cx="12" cy="8" r="3.6"/><path d="M5.5 19.5a6.5 6.5 0 0 1 13 0"/>',
+  logout:  '<path d="M14 4.5H6.6A1.6 1.6 0 0 0 5 6.1v11.8A1.6 1.6 0 0 0 6.6 19.5H14"/><path d="M17 8.5l3.4 3.5-3.4 3.5"/><path d="M10.6 12h9.4"/>',
 };
 // every button already carries a title, so the graphic stays out of the
 // accessibility tree instead of being announced a second time
@@ -5100,6 +5104,15 @@ document.addEventListener('click', (e) => {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') setUserMenuOpen(false);
 });
+
+// the two menu buttons are static markup, so their icons are injected here once
+// icon() exists; the text stays wrapped in a span so the flex gap is reliable
+(function decorateUserMenu(){
+  const p = document.getElementById('profileBtn');
+  const l = document.getElementById('logoutBtn');
+  if (p) p.innerHTML = icon('user') + '<span>الملف الشخصي</span>';
+  if (l) l.innerHTML = icon('logout') + '<span>تسجيل الخروج</span>';
+})();
 
 async function startApp(){
   if (appStarted) return;
