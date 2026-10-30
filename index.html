@@ -55,6 +55,7 @@ body{
   color:var(--ink);
   font-family:'Tajawal',-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;
   min-height:100vh;
+  min-height:100dvh;
   -webkit-font-smoothing:antialiased;
 }
 h1,h2,h3,.label-font{font-family:'Cairo',-apple-system,BlinkMacSystemFont,'SF Pro Display',sans-serif;}
@@ -115,6 +116,7 @@ h1,h2,h3,.label-font{font-family:'Cairo',-apple-system,BlinkMacSystemFont,'SF Pr
 }
 .map-box{
   height:72vh;
+  height:72dvh;
   min-height:460px;
   border-radius:14px;
   overflow:hidden;
@@ -159,9 +161,11 @@ h1,h2,h3,.label-font{font-family:'Cairo',-apple-system,BlinkMacSystemFont,'SF Pr
   border-radius:20px;
   transition: all .2s cubic-bezier(0.25,0.1,0.25,1);
 }
-.tab-btn:hover{
-  color:var(--brick-dark);
-  background:rgba(251,247,238,0.45);
+@media (hover:hover){
+  .tab-btn:hover{
+    color:var(--brick-dark);
+    background:rgba(251,247,238,0.45);
+  }
 }
 .tab-btn.active{
   color:#fff;
@@ -192,9 +196,11 @@ h1,h2,h3,.label-font{font-family:'Cairo',-apple-system,BlinkMacSystemFont,'SF Pr
   margin-bottom:16px;
   transition: border-color .2s, box-shadow .2s;
 }
-.card:hover{
-  border-color: rgba(181,80,46,0.35);
-  box-shadow: var(--shadow);
+@media (hover:hover){
+  .card:hover{
+    border-color: rgba(181,80,46,0.35);
+    box-shadow: var(--shadow);
+  }
 }
 
 .btn{
@@ -210,10 +216,12 @@ h1,h2,h3,.label-font{font-family:'Cairo',-apple-system,BlinkMacSystemFont,'SF Pr
   transition: all .2s cubic-bezier(0.25,0.1,0.25,1);
   box-shadow: 0 4px 14px rgba(181,80,46,0.28);
 }
-.btn:hover{
-  background: var(--brick-dark);
-  transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(181,80,46,0.38);
+@media (hover:hover){
+  .btn:hover{
+    background: var(--brick-dark);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(181,80,46,0.38);
+  }
 }
 .btn:active{transform:translateY(0);}
 .btn.secondary{
@@ -223,9 +231,11 @@ h1,h2,h3,.label-font{font-family:'Cairo',-apple-system,BlinkMacSystemFont,'SF Pr
   box-shadow: none;
   backdrop-filter: blur(12px);
 }
-.btn.secondary:hover{
-  background: rgba(181,80,46,0.08);
-  transform: translateY(-1px);
+@media (hover:hover){
+  .btn.secondary:hover{
+    background: rgba(181,80,46,0.08);
+    transform: translateY(-1px);
+  }
 }
 .btn.ghost{
   background:transparent;
@@ -233,10 +243,12 @@ h1,h2,h3,.label-font{font-family:'Cairo',-apple-system,BlinkMacSystemFont,'SF Pr
   border-color: var(--border);
   box-shadow:none;
 }
-.btn.ghost:hover{
-  border-color: var(--ink-soft);
-  color:var(--ink);
-  background: rgba(43,38,32,0.04);
+@media (hover:hover){
+  .btn.ghost:hover{
+    border-color: var(--ink-soft);
+    color:var(--ink);
+    background: rgba(43,38,32,0.04);
+  }
 }
 .btn.sm{padding:5px 12px;font-size:12px;border-radius:14px;}
 .btn.danger{
@@ -245,7 +257,9 @@ h1,h2,h3,.label-font{font-family:'Cairo',-apple-system,BlinkMacSystemFont,'SF Pr
   border-color: rgba(168,62,62,0.45);
   box-shadow:none;
 }
-.btn.danger:hover{background:rgba(168,62,62,0.10);}
+@media (hover:hover){
+  .btn.danger:hover{background:rgba(168,62,62,0.10);}
+}
 .btn:disabled{opacity:.4;cursor:not-allowed;transform:none !important;box-shadow:none !important;}
 
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px;}
@@ -262,9 +276,11 @@ h1,h2,h3,.label-font{font-family:'Cairo',-apple-system,BlinkMacSystemFont,'SF Pr
   box-shadow: var(--shadow-sm);
   transition: transform .2s, border-color .2s;
 }
-.kpi:hover{
-  transform: translateY(-2px);
-  border-color: rgba(181,80,46,0.35);
+@media (hover:hover){
+  .kpi:hover{
+    transform: translateY(-2px);
+    border-color: rgba(181,80,46,0.35);
+  }
 }
 .kpi .n{
   font-family:'IBM Plex Mono',monospace;
@@ -296,7 +312,9 @@ tbody td{
   color:var(--ink);
 }
 tbody tr{transition: background .15s;}
-tbody tr:hover{background:rgba(181,80,46,0.045);}
+@media (hover:hover){
+  tbody tr:hover{background:rgba(181,80,46,0.045);}
+}
 .table-scroll{overflow-x:auto;border-radius: var(--radius-sm);}
 .empty-row td{text-align:center;color:var(--ink-soft);padding:28px;font-style:italic;}
 .pill{
@@ -353,6 +371,9 @@ tbody tr:hover{background:rgba(181,80,46,0.045);}
 .toolbar .datefield{display:flex;align-items:center;gap:7px;margin:0;font-size:12px;color:var(--ink-soft);white-space:nowrap;}
 .toolbar select option{background:#FBF7EE;color:var(--ink);}
 .toolbar .spacer{flex:1;}
+/* the field wants a wide desktop basis but must stay free to shrink: an inline
+   min-width outranks the phone override and pushes the whole page sideways */
+#globalSearchInput{flex:1 1 340px;min-width:0;}
 
 /* --- searchable type-to-filter combobox --- */
 .searchable{position:relative;display:block;width:100%;}
@@ -387,9 +408,15 @@ tbody tr:hover{background:rgba(181,80,46,0.045);}
   transition:background .15s,color .15s;
 }
 /* a soft tint reads as an iOS menu selection; a solid brick block did not */
-.searchable-item:hover,.searchable-item.active{background:var(--accent-soft);color:var(--brick-dark);}
+.searchable-item.active{background:var(--accent-soft);color:var(--brick-dark);}
+@media (hover:hover){
+  .searchable-item:hover{background:var(--accent-soft);color:var(--brick-dark);}
+}
 .searchable-item.selected{font-weight:700;color:var(--brick-dark);background:rgba(181,80,46,0.10);}
-.searchable-item.selected:hover,.searchable-item.selected.active{background:var(--accent-soft);}
+.searchable-item.selected.active{background:var(--accent-soft);}
+@media (hover:hover){
+  .searchable-item.selected:hover{background:var(--accent-soft);}
+}
 .searchable-empty{padding:10px 12px;font-size:13px;color:var(--ink-soft);}
 .toolbar .searchable{width:auto;min-width:180px;}
 .toolbar .searchable-input{border-radius:20px;padding:9px 34px 9px 14px;border:1px solid var(--glass-border);background:rgba(255,255,255,0.55);font-size:13px;}
@@ -421,11 +448,15 @@ tbody tr:hover{background:rgba(181,80,46,0.045);}
   color:#F3ECDD;font-family:'Cairo',sans-serif;font-weight:600;font-size:13.5px;
   text-align:center;border-radius:11px;padding:10px 12px;
 }
-.searchable-list.dark .searchable-item:hover,
 .searchable-list.dark .searchable-item.active{background:var(--brick);color:#fff;}
+@media (hover:hover){
+  .searchable-list.dark .searchable-item:hover{background:var(--brick);color:#fff;}
+}
 .searchable-list.dark .searchable-item.selected{color:var(--amber);background:rgba(192,138,46,0.14);}
-.searchable-list.dark .searchable-item.selected:hover,
 .searchable-list.dark .searchable-item.selected.active{color:#fff;background:var(--brick);}
+@media (hover:hover){
+  .searchable-list.dark .searchable-item.selected:hover{color:#fff;background:var(--brick);}
+}
 .searchable-list.dark .searchable-empty{color:#C9BCA6;}
 
 .modal-overlay{
@@ -594,9 +625,11 @@ select#activeProjectSelect option{background:#33291F;color:#F3ECDD;text-align:ce
   transition: all .15s;
 }
 .icon-btn .ic{width:17px;height:17px;}
-.icon-btn:hover{
-  color:var(--brick);
-  background: rgba(181,80,46,0.10);
+@media (hover:hover){
+  .icon-btn:hover{
+    color:var(--brick);
+    background: rgba(181,80,46,0.10);
+  }
 }
 #usersTableWrap td select{height:36px;padding:4px 8px;font-size:13px;min-width:132px;}
 #usersTableWrap .checkfield{margin-top:0;justify-content:flex-start;}
@@ -704,7 +737,11 @@ select#activeProjectSelect option{background:#33291F;color:#F3ECDD;text-align:ce
 #loginGate, #recoveryGate{
   position:fixed;inset:0;z-index:9999;
   display:flex;align-items:center;justify-content:center;
-  padding:20px;
+  /* a phone turned sideways is shorter than this card, and a fixed flex box with
+     no scroll clips both ends — the submit button becomes permanently unreachable */
+  overflow-y:auto;
+  padding:calc(20px + env(safe-area-inset-top,0px)) calc(20px + env(safe-area-inset-right,0px))
+          calc(20px + env(safe-area-inset-bottom,0px)) calc(20px + env(safe-area-inset-left,0px));
   background:
     radial-gradient(ellipse 80% 55% at 8% -8%, rgba(181,80,46,0.16), transparent 50%),
     radial-gradient(ellipse 70% 45% at 96% 8%, rgba(192,138,46,0.14), transparent 46%),
@@ -712,6 +749,9 @@ select#activeProjectSelect option{background:#33291F;color:#F3ECDD;text-align:ce
     var(--paper);
 }
 .login-card{
+  /* auto margins centre like align-items:center but collapse to zero on overflow,
+     which is what keeps the top of the card scrollable instead of clipped */
+  margin:auto;
   width:100%;max-width:400px;
   background: var(--glass-strong);
   backdrop-filter: blur(var(--blur)) saturate(1.3);
@@ -811,11 +851,17 @@ select#activeProjectSelect option{background:#33291F;color:#F3ECDD;text-align:ce
   font-family:'Cairo',sans-serif;font-weight:700;font-size:12.5px;
   direction:rtl;text-align:right;
 }
-.titleblock .userchip:hover,
 .titleblock .userchip[aria-expanded="true"]{
   border-color: var(--amber);
   background-color: rgba(192,138,46,0.22);
   color:#F3ECDD;
+}
+@media (hover:hover){
+  .titleblock .userchip:hover{
+    border-color: var(--amber);
+    background-color: rgba(192,138,46,0.22);
+    color:#F3ECDD;
+  }
 }
 .titleblock .usermenu-pop{
   position:absolute;top:calc(100% + 8px);inset-inline-end:0;
@@ -833,11 +879,15 @@ select#activeProjectSelect option{background:#33291F;color:#F3ECDD;text-align:ce
   border:1px solid rgba(243,236,221,0.28);
   transition: all .2s cubic-bezier(0.25,0.1,0.25,1);
 }
-.titleblock .btn-menu:hover{
-  border-color: var(--amber);color:#F3ECDD;background: rgba(192,138,46,0.22);
+@media (hover:hover){
+  .titleblock .btn-menu:hover{
+    border-color: var(--amber);color:#F3ECDD;background: rgba(192,138,46,0.22);
+  }
 }
-.titleblock .btn-logout:hover{
-  border-color: var(--red);color:#E8A9A9;background: rgba(168,62,62,0.18);
+@media (hover:hover){
+  .titleblock .btn-logout:hover{
+    border-color: var(--red);color:#E8A9A9;background: rgba(168,62,62,0.18);
+  }
 }
 .pf-avatar-row{display:flex;align-items:center;gap:18px;flex-wrap:wrap;}
 .pf-avatar{
@@ -875,9 +925,16 @@ body{-webkit-tap-highlight-color:transparent;}
 button, .tab-btn, .icon-btn, .userchip{touch-action:manipulation;-webkit-user-select:none;user-select:none;}
 .tabs{scrollbar-width:none;-ms-overflow-style:none;}
 .tabs::-webkit-scrollbar{display:none;}
+/* viewport-fit=cover lets the page run under the notch, so in landscape the
+   horizontal insets must be added back or the first tab hides under it; env()
+   is 0 in portrait and on desktop, which makes every one of these a no-op */
+.tabs{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));}
 .toast{bottom:calc(24px + env(safe-area-inset-bottom,0px));}
 .toast.show{bottom:calc(36px + env(safe-area-inset-bottom,0px));}
 @media (max-width:900px){
+  /* iOS repaints the whole document on every scroll frame for a fixed body
+     background, which reads as stutter rather than as a design choice */
+  body{background-attachment:scroll;}
   /* 16px keeps iOS Safari from zooming when a field gets focus */
   .field input, .field select, .field textarea,
   .searchable-input, .toolbar input[type=text], .toolbar select,
@@ -888,11 +945,11 @@ button, .tab-btn, .icon-btn, .userchip{touch-action:manipulation;-webkit-user-se
 }
 @media (max-width:640px){
   .wrap{padding:14px 12px calc(48px + env(safe-area-inset-bottom,0px));}
-  .btn{padding:12px 20px;font-size:13.5px;}
-  .btn.sm{padding:9px 14px;font-size:12px;}
-  .tab-btn{padding:11px 16px;}
-  .icon-btn{padding:9px 11px;font-size:16px;}
-  .checkfield input{width:20px;height:20px;}
+  .btn{padding:12px 20px;font-size:13.5px;min-height:44px;}
+  .btn.sm{padding:9px 14px;font-size:12px;min-height:40px;}
+  .tab-btn{padding:11px 16px;min-height:44px;}
+  .icon-btn{padding:9px 11px;font-size:16px;min-width:44px;min-height:44px;}
+  .checkfield input{width:24px;height:24px;}
   .section-title{flex-direction:column;align-items:stretch;}
   .section-title .btn{width:100%;}
   .toolbar input[type=text], .toolbar select, .toolbar .searchable{flex:1 1 100%;width:100%;min-width:0;}
@@ -910,13 +967,30 @@ button, .tab-btn, .icon-btn, .userchip{touch-action:manipulation;-webkit-user-se
   .po-totals, .po-doc-totals{max-width:100%;}
   .po-items-table{min-width:680px;}
   .searchable-item{padding:12px;font-size:15px;}
-  .searchable-list{max-height:45vh;}
-  .map-box{height:58vh;min-height:340px;}
+  .searchable-list{max-height:45vh;max-height:45dvh;}
+  .map-box{height:58vh;height:58dvh;min-height:340px;}
   .toast{max-width:calc(100vw - 24px);font-size:12.5px;padding:11px 18px;}
   .bar-label{width:104px;font-size:11.5px;}
   .bar-val{width:84px;font-size:11px;}
   .login-card{padding:24px 18px 20px;}
   .pf-avatar-row{gap:12px;}
+}
+@media (min-width:641px){
+  .wrap{padding-left:max(20px,env(safe-area-inset-left,0px));padding-right:max(20px,env(safe-area-inset-right,0px));}
+}
+@media (max-width:640px){
+  .wrap{padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px));}
+  .modal-overlay{padding-left:max(10px,env(safe-area-inset-left,0px));padding-right:max(10px,env(safe-area-inset-right,0px));}
+}
+/* the header has three different paddings, so each breakpoint needs its own */
+@media (min-width:901px){
+  .titleblock{padding-left:max(28px,env(safe-area-inset-left,0px));padding-right:max(28px,env(safe-area-inset-right,0px));}
+}
+@media (max-width:900px){
+  .titleblock{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));}
+}
+@media (max-width:600px){
+  .titleblock{padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px));}
 }
 @media print{
   #loginGate,.titleblock .usermenu{display:none !important;}
@@ -3587,7 +3661,7 @@ function renderSearch(){
       <div><h2>البحث الشامل</h2><div class="desc">ابحث في المواد والموردين والأسعار والمشاريع وأوامر الشراء دفعة واحدة</div></div>
     </div>
     <div class="toolbar">
-      <input type="text" id="globalSearchInput" placeholder="اكتب اسم مادة، كود، مورد، مشروع، رقم أمر شراء..." style="min-width:340px;" oninput="runGlobalSearch()">
+      <input type="text" id="globalSearchInput" placeholder="اكتب اسم مادة، كود، مورد، مشروع، رقم أمر شراء..." oninput="runGlobalSearch()">
       <div class="spacer"></div>
       <span class="small-muted" id="searchCount"></span>
     </div>
