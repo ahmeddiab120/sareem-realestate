@@ -832,25 +832,34 @@ select#activeProjectSelect option{background:#33291F;color:#F3ECDD;text-align:ce
 .titleblock .headright{flex:0 1 auto;min-width:0;margin-inline-start:auto;}
 .titleblock .usermenu{position:relative;flex:0 0 auto;}
 .titleblock .userchip{
-  display:block;
+  display:inline-flex;align-items:center;gap:7px;
   font-size:11.5px;line-height:1.5;
   color:rgba(243,236,221,0.85);
   border:1px solid rgba(192,138,46,0.35);
   background-color: rgba(192,138,46,0.10);
-  border-radius:20px;padding:6px 26px 6px 13px;
+  border-radius:20px;padding:5px 26px 5px 9px;
   font-family:'IBM Plex Mono',monospace;
   direction:ltr;text-align:left;
-  max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  max-width:230px;
   cursor:pointer;
   transition: all .2s cubic-bezier(0.25,0.1,0.25,1);
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23C08A2E' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
   background-repeat:no-repeat;
   background-position:right 10px center;
 }
+/* the avatar is a fixed square, the name takes the slack and ellipsizes, so the
+   chip never grows past max-width on any screen */
+.titleblock .userchip .chip-avatar{
+  width:22px;height:22px;border-radius:50%;object-fit:cover;
+  flex:0 0 auto;border:1px solid rgba(192,138,46,0.55);background:#2a2620;
+}
+.titleblock .userchip .chip-name{
+  min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
 .titleblock .userchip.is-name{
   font-family:'Cairo',sans-serif;font-weight:700;font-size:12.5px;
-  direction:rtl;text-align:right;
 }
+.titleblock .userchip.is-name .chip-name{direction:rtl;text-align:right;}
 .titleblock .userchip[aria-expanded="true"]{
   border-color: var(--amber);
   background-color: rgba(192,138,46,0.22);
@@ -919,7 +928,8 @@ select#activeProjectSelect option{background:#33291F;color:#F3ECDD;text-align:ce
   .titleblock .headstart{gap:10px;}
   .titleblock .logo{height:34px;border-radius:8px;}
   .titleblock h1{font-size:15px;}
-  .titleblock .userchip{max-width:160px;font-size:11px;padding:6px 24px 6px 11px;}
+  .titleblock .userchip{max-width:160px;font-size:11px;padding:4px 22px 4px 7px;gap:6px;}
+  .titleblock .userchip .chip-avatar{width:20px;height:20px;}
   .titleblock .usermenu-pop{min-width:150px;}
 }
 html{-webkit-text-size-adjust:100%;}
@@ -5151,9 +5161,14 @@ async function renderUserChip(){
   const email = (user && user.email) || '';
   const md = (user && user.user_metadata) || {};
   const name = [md.first_name, md.last_name].map(s => String(s || '').trim()).filter(Boolean).join(' ');
-  chip.textContent = name || email;
+  // only trust our own encoded data URL, so a tampered metadata value can never
+  // inject a src or break out of the attribute
+  const avatar = (typeof md.avatar === 'string' && /^data:image\//.test(md.avatar)) ? md.avatar : '';
   chip.classList.toggle('is-name', !!name);
   chip.title = email;
+  chip.innerHTML =
+    (avatar ? `<img class="chip-avatar" src="${esc(avatar)}" alt="">` : '') +
+    `<span class="chip-name">${esc(name || email)}</span>`;
 }
 
 async function doLogout(){
