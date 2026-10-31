@@ -1366,7 +1366,7 @@ let CURRENT_USER_EMAIL = '';
 let ROLES_TABLE_MISSING = false;
 const ROLE_LABELS = {admin:'أدمن', owner:'مالك', engineer:'مهندس موقع', data_entry:'مدخل بيانات', pending:'في انتظار تحديد الدور'};
 const ROLE_TABS = {
-  admin: ['dashboard','materials','suppliers','prices','projects','map','costing','po','compare','search','reports','audit','users'],
+  admin: ['dashboard','materials','suppliers','prices','projects','map','costing','po','compare','search','reports','audit'],
   owner: ['dashboard','materials','suppliers','prices','projects','map','costing','po','compare','search','reports'],
   data_entry: ['dashboard','materials','suppliers','prices','projects','map','costing','po','search'],
   engineer: ['dashboard','materials','suppliers','prices','projects','map','costing','po','search','reports'],
@@ -1557,7 +1557,6 @@ const TABS = [
   {id:'search', label:'البحث الشامل'},
   {id:'reports', label:'التقارير'},
   {id:'audit', label:'سجل التغييرات'},
-  {id:'users', label:'المستخدمون'},
 ];
 
 function buildShell(){
@@ -1607,7 +1606,6 @@ function renderPanel(id){
   if(id==='search') renderSearch();
   if(id==='reports') renderReports();
   if(id==='audit') renderAudit();
-  if(id==='users') renderUsers();
   if(id==='profile') renderProfile();
   if(id==='settings') renderSettings();
 }
@@ -1669,14 +1667,18 @@ function renderSettings(){
       </div>
       <button class="btn ghost" onclick="triggerRestore()">اختيار ملف والاستعادة</button>
     </div>`);
+  // users management moved here from its own tab; only the admin ever sees it
+  const canUsers = CURRENT_ROLE === 'admin';
   box.innerHTML = `
     <div class="section-title">
-      <div><h2>الإعدادات</h2><div class="desc">إدارة النسخ الاحتياطي واستعادة البيانات</div></div>
+      <div><h2>الإعدادات</h2><div class="desc">${canUsers ? 'النسخ الاحتياطي والاستعادة وإدارة المستخدمين' : 'إدارة النسخ الاحتياطي واستعادة البيانات'}</div></div>
     </div>
     <div class="card">
       ${rows.length ? rows.join('') : '<div class="small-muted">لا توجد إعدادات متاحة لحسابك.</div>'}
     </div>
+    ${canUsers ? '<div id="panel-users"></div>' : ''}
   `;
+  if(canUsers) renderUsers();
 }
 function _pfMsg(text, kind){
   const el = document.getElementById('pfMsg');
