@@ -914,6 +914,14 @@ select#activeProjectSelect option{background:#33291F;color:#F3ECDD;text-align:ce
 .pf-msg{margin-top:14px;padding:9px 12px;border-radius:12px;font-size:12.5px;}
 .pf-msg.err{border:1px solid rgba(168,62,62,0.45);background:rgba(168,62,62,0.09);color:var(--red);}
 .pf-msg:not(.err){border:1px solid rgba(75,122,91,0.4);background:rgba(75,122,91,0.10);color:#3F6B4E;}
+.setting-row{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:16px 0;border-bottom:1px solid var(--border);}
+.setting-row:first-child{padding-top:4px;}
+.setting-row:last-child{border-bottom:none;padding-bottom:4px;}
+.setting-row .sr-text{min-width:0;flex:1 1 260px;}
+.setting-row .sr-text h3{display:flex;align-items:center;gap:8px;margin:0 0 4px;font-size:14.5px;}
+.setting-row .sr-text h3 .ic{width:17px;height:17px;color:var(--amber);flex:0 0 auto;}
+.setting-row .sr-text p{margin:0;font-size:12.5px;color:var(--ink-soft);line-height:1.7;}
+.setting-row .btn{flex:0 0 auto;white-space:nowrap;}
 @media (max-width:900px){
   .titleblock{padding:14px 16px;gap:10px;}
   .titleblock .logo{height:40px;}
@@ -1227,6 +1235,7 @@ if (!window.storage) {
       <button type="button" class="userchip" id="userChip" aria-haspopup="true" aria-expanded="false" onclick="toggleUserMenu()"></button>
       <div class="usermenu-pop" id="userMenuPop" hidden>
         <button type="button" class="btn-menu" id="profileBtn" onclick="goProfile()">الملف الشخصي</button>
+        <button type="button" class="btn-menu" id="settingsBtn" onclick="goSettings()" hidden>الإعدادات</button>
         <button type="button" class="btn-logout" id="logoutBtn" onclick="doLogout()">تسجيل الخروج</button>
       </div>
     </div>
@@ -1293,6 +1302,7 @@ const ICONS = {
   warning: '<path d="M12 3.6L21.4 20H2.6z"/><path d="M12 9.4v4.6"/><path d="M12 17.2h.01"/>',
   user:    '<circle cx="12" cy="8" r="3.6"/><path d="M5.5 19.5a6.5 6.5 0 0 1 13 0"/>',
   logout:  '<path d="M14 4.5H6.6A1.6 1.6 0 0 0 5 6.1v11.8A1.6 1.6 0 0 0 6.6 19.5H14"/><path d="M17 8.5l3.4 3.5-3.4 3.5"/><path d="M10.6 12h9.4"/>',
+  gear:    '<circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.4M12 18.8v2.4M4.6 12H2.2M21.8 12h-2.4M6.4 6.4L4.7 4.7M19.3 19.3l-1.7-1.7M17.6 6.4l1.7-1.7M4.7 19.3l1.7-1.7"/>',
 };
 // every button already carries a title, so the graphic stays out of the
 // accessibility tree instead of being announced a second time
@@ -1557,6 +1567,7 @@ function buildShell(){
   const wrap = document.getElementById('panelsWrap');
   wrap.innerHTML = tabs.map(t=>`<div class="panel" id="panel-${t.id}"></div>`).join('');
   wrap.insertAdjacentHTML('beforeend', '<div class="panel" id="panel-profile"></div>');
+  wrap.insertAdjacentHTML('beforeend', '<div class="panel" id="panel-settings"></div>');
   showLoadSkeleton();
 }
 function showLoadSkeleton(){
@@ -1598,6 +1609,7 @@ function renderPanel(id){
   if(id==='audit') renderAudit();
   if(id==='users') renderUsers();
   if(id==='profile') renderProfile();
+  if(id==='settings') renderSettings();
 }
 function renderAll(){
   renderProjectSelector();
@@ -1626,6 +1638,45 @@ let _pfAvatar = '';
 function goProfile(){
   setUserMenuOpen(false);
   switchTab('profile');
+}
+function goSettings(){
+  setUserMenuOpen(false);
+  switchTab('settings');
+}
+// the settings item only exists for roles that can back up or restore, so it is
+// kept hidden in markup and revealed here once the role is known
+function applyMenuPerms(){
+  const s = document.getElementById('settingsBtn');
+  if (s) s.hidden = !(can('export') || can('restore'));
+}
+function renderSettings(){
+  const box = document.getElementById('panel-settings');
+  if(!box) return;
+  const rows = [];
+  if(can('export')) rows.push(`
+    <div class="setting-row">
+      <div class="sr-text">
+        <h3>${icon('save')} نسخة احتياطية</h3>
+        <p>تنزيل كل البيانات (المواد، الموردين، الأسعار، المشاريع، الكميات، أوامر الشراء، المقاولين) في ملف واحد.</p>
+      </div>
+      <button class="btn secondary" onclick="exportBackup()">تنزيل النسخة</button>
+    </div>`);
+  if(can('restore')) rows.push(`
+    <div class="setting-row">
+      <div class="sr-text">
+        <h3>${icon('restore')} استعادة نسخة احتياطية</h3>
+        <p>استبدال كل البيانات الحالية ببيانات ملف نسخة احتياطية. لا يمكن التراجع عن هذه العملية.</p>
+      </div>
+      <button class="btn ghost" onclick="triggerRestore()">اختيار ملف والاستعادة</button>
+    </div>`);
+  box.innerHTML = `
+    <div class="section-title">
+      <div><h2>الإعدادات</h2><div class="desc">إدارة النسخ الاحتياطي واستعادة البيانات</div></div>
+    </div>
+    <div class="card">
+      ${rows.length ? rows.join('') : '<div class="small-muted">لا توجد إعدادات متاحة لحسابك.</div>'}
+    </div>
+  `;
 }
 function _pfMsg(text, kind){
   const el = document.getElementById('pfMsg');
@@ -2047,10 +2098,6 @@ function renderDashboard(){
       <div>
         <h2>لوحة التحكم</h2>
         <div class="desc">نظرة عامة على قاعدة البيانات وتكاليف المشاريع الحالية</div>
-      </div>
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        ${can('export')?`<button class="btn secondary" onclick="exportBackup()">${icon('save')} نسخة احتياطية</button>`:''}
-        ${can('restore')?`<button class="btn ghost" onclick="triggerRestore()">${icon('restore')} استعادة</button>`:''}
       </div>
     </div>
 
@@ -5023,6 +5070,7 @@ function buildPrintLetterhead(){
 async function init(){
   await loadRole();
   buildShell();
+  applyMenuPerms();
   try {
     buildPrintLetterhead();
     await loadAll();
@@ -5119,8 +5167,10 @@ document.addEventListener('keydown', (e) => {
 // icon() exists; the text stays wrapped in a span so the flex gap is reliable
 (function decorateUserMenu(){
   const p = document.getElementById('profileBtn');
+  const s = document.getElementById('settingsBtn');
   const l = document.getElementById('logoutBtn');
   if (p) p.innerHTML = icon('user') + '<span>الملف الشخصي</span>';
+  if (s) s.innerHTML = icon('gear') + '<span>الإعدادات</span>';
   if (l) l.innerHTML = icon('logout') + '<span>تسجيل الخروج</span>';
 })();
 
