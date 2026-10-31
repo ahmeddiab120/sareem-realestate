@@ -262,6 +262,28 @@ h1,h2,h3,.label-font{font-family:'Cairo',-apple-system,BlinkMacSystemFont,'SF Pr
 }
 .btn:disabled{opacity:.4;cursor:not-allowed;transform:none !important;box-shadow:none !important;}
 
+.locked-box{
+  max-width:520px;margin:7vh auto 0;padding:34px 28px;text-align:center;
+  background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+  box-shadow:0 12px 40px rgba(43,38,32,0.10);
+}
+.locked-box .locked-ic{
+  width:58px;height:58px;margin:0 auto 16px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(168,62,62,0.10);color:var(--red);
+}
+.locked-box .locked-ic .ic{width:30px;height:30px;}
+.locked-box h2{margin:0 0 10px;font-size:19px;font-weight:800;color:var(--brick-dark);}
+.locked-box p{margin:0 0 22px;font-size:13.5px;line-height:1.9;color:var(--ink-soft);}
+.locked-actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}
+.locked-actions .btn{display:inline-flex;align-items:center;gap:7px;}
+.locked-actions .btn .ic{width:16px;height:16px;}
+@media (max-width:600px){
+  .locked-box{margin:5vh 12px 0;padding:26px 18px;}
+  .locked-actions{flex-direction:column;}
+  .locked-actions .btn{width:100%;justify-content:center;min-height:44px;}
+}
+
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px;}
 .kpi{
   container-type:inline-size;
@@ -1403,6 +1425,9 @@ const ROLE_TABS = {
   data_entry: ['dashboard','materials','suppliers','prices','projects','map','costing','po','search'],
   engineer: ['dashboard','materials','suppliers','prices','projects','map','costing','po','search','reports'],
   pending: ['dashboard'],
+  // role could not be confirmed (roles table missing or the read failed) — no tab
+  // is reachable; the app shows the locked "تعذّر التحقق" screen instead
+  unverified: [],
 };
 // what each role can do, shown to the admin on the users page
 const PERM_MATRIX = [
@@ -1461,17 +1486,26 @@ async function loadRole(){
     if(tokenEmail !== liveEmail) throw new Error('EMAIL_CHANGED');
   }
   CURRENT_USER_EMAIL = tokenEmail;
-  let rows = [];
+  // Fail CLOSED. Reading the roles table can fail because the table is missing
+  // (404) or because the request itself failed (network, server, RLS). In every
+  // one of those cases the role is UNKNOWN, so the app locks to 'unverified' and
+  // never falls back to admin. rows stays null to mean "could not read the table".
+  let rows = null;
   let rolesNotInstalled = false;
   try { rows = (await supabaseFetch('user_roles?select=*')) || []; }
   catch(e){
-    // the roles table is created by user-roles.sql; until it exists everyone keeps
-    // the old full access instead of being locked out of their own data
     rolesNotInstalled = /Supabase 404|PGRST205|does not exist/i.test(String((e && e.message) || e));
   }
+  ROLES_TABLE_MISSING = rolesNotInstalled;
+  if(rows === null){
+    CURRENT_ROLE = 'unverified';
+    DB.user_roles = [];
+    return;
+  }
   let mine = rows.find(r=> String(r.email||'').toLowerCase() === CURRENT_USER_EMAIL);
-  if(!mine && CURRENT_USER_EMAIL && !rolesNotInstalled){
-    // the first account on an empty table claims admin; every other account
+  if(!mine && CURRENT_USER_EMAIL){
+    // the table is readable but this account has no row yet: the first account on
+    // an empty table claims admin (gated server-side by RLS), every other account
     // registers itself read-only so it shows up in the admin's users list
     for(const role of ['admin','pending']){
       try {
@@ -1482,12 +1516,18 @@ async function loadRole(){
     try {
       rows = (await supabaseFetch('user_roles?select=*')) || [];
       mine = rows.find(r=> String(r.email||'').toLowerCase() === CURRENT_USER_EMAIL);
-    } catch(e){ mine = null; }
+    } catch(e){ rows = null; mine = null; }
   }
-  CURRENT_ROLE = mine ? mine.role : (rolesNotInstalled ? 'admin' : 'pending');
-  ROLES_TABLE_MISSING = rolesNotInstalled;
+  if(!mine){
+    // the row still could not be confirmed (self-registration was refused and no
+    // existing row, or the confirmation read failed) → role unknown → locked
+    CURRENT_ROLE = 'unverified';
+    DB.user_roles = rows || [];
+    return;
+  }
+  CURRENT_ROLE = mine.role;
   DB.user_roles = rows;
-  if(mine && mine.disabled) throw new Error('ACCOUNT_DISABLED');
+  if(mine.disabled) throw new Error('ACCOUNT_DISABLED');
 }
 
 /* =========================================================
@@ -1616,6 +1656,45 @@ function hideLoadSkeleton(){
   if(!p) return;
   p.removeAttribute('aria-busy');
   if(p.querySelector('.sk-note')) p.innerHTML = '';
+}
+// The roles table could not be read (missing, or the request failed), so the role
+// is unknown and the whole app is locked: no tabs, no data, only a retry and a way
+// out. This replaces the shell so nothing permission-gated stays reachable, and the
+// menu is trimmed to logout only.
+function renderUnverified(){
+  const tabsBar = document.getElementById('tabsBar');
+  if(tabsBar) tabsBar.innerHTML = '';
+  const pb = document.getElementById('profileBtn'); if(pb) pb.hidden = true;
+  const sb2 = document.getElementById('settingsBtn'); if(sb2) sb2.hidden = true;
+  const wrap = document.getElementById('panelsWrap');
+  if(!wrap) return;
+  const detail = ROLES_TABLE_MISSING
+    ? 'جدول الأدوار (user_roles) غير متوفر على الخادم — يجب تشغيل الملف user-roles.sql في قاعدة البيانات أولاً.'
+    : 'تعذّر الوصول إلى خادم الأدوار للتحقق من صلاحيتك — تحقّق من اتصال الإنترنت.';
+  wrap.innerHTML = `
+    <div class="panel active" id="panel-unverified">
+      <div class="locked-box" role="alert">
+        <div class="locked-ic">${icon('warning')}</div>
+        <h2>تعذّر التحقق من الصلاحية</h2>
+        <p>${detail} لم يتم منح أي صلاحية كإجراء وقائي.</p>
+        <div class="locked-actions">
+          <button class="btn" onclick="retryVerify(this)">${icon('refill')}<span>إعادة المحاولة</span></button>
+          <button class="btn ghost" onclick="doLogout()">${icon('logout')}<span>تسجيل الخروج</span></button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+async function retryVerify(btn){
+  if(btn) btn.disabled = true;
+  const pb = document.getElementById('profileBtn'); if(pb) pb.hidden = false;
+  try {
+    await init();
+  } catch(e){
+    const reason = e && e.message;
+    if(reason === 'ACCOUNT_DISABLED' || reason === 'EMAIL_CHANGED'){ doLogout(); return; }
+    renderUnverified();
+  }
 }
 function switchTab(id){
   CURRENT_TAB = id;
@@ -5125,6 +5204,7 @@ function buildPrintLetterhead(){
 }
 async function init(){
   await loadRole();
+  if(CURRENT_ROLE === 'unverified'){ renderUnverified(); return; }
   buildShell();
   applyMenuPerms();
   try {
