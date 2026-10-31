@@ -922,6 +922,38 @@ select#activeProjectSelect option{background:#33291F;color:#F3ECDD;text-align:ce
 .setting-row .sr-text h3 .ic{width:17px;height:17px;color:var(--amber);flex:0 0 auto;}
 .setting-row .sr-text p{margin:0;font-size:12.5px;color:var(--ink-soft);line-height:1.7;}
 .setting-row .btn{flex:0 0 auto;white-space:nowrap;}
+/* settings uses sub-navigation: a sticky side column on wide screens (nav sits
+   on the right because the page is RTL), collapsing to a scrollable chip row on
+   phones; only the active section is rendered into .settings-body */
+.settings-layout{display:flex;gap:20px;align-items:flex-start;}
+.settings-nav{
+  flex:0 0 190px;display:flex;flex-direction:column;gap:6px;
+  position:sticky;top:64px;z-index:30;
+}
+.settings-body{flex:1 1 auto;min-width:0;}
+.settings-navbtn{
+  font-family:'Cairo',sans-serif;font-weight:700;font-size:13px;
+  display:flex;align-items:center;gap:9px;width:100%;text-align:start;
+  padding:11px 14px;border-radius:var(--radius-sm);cursor:pointer;
+  background:var(--card);color:var(--ink);border:1px solid var(--border);
+  transition:all .2s cubic-bezier(.25,.1,.25,1);
+}
+.settings-navbtn .ic{width:17px;height:17px;flex:0 0 auto;color:var(--ink-soft);}
+.settings-navbtn.active{border-color:var(--amber);background:rgba(192,138,46,0.14);}
+.settings-navbtn.active .ic{color:var(--amber);}
+@media (hover:hover){
+  .settings-navbtn:hover{border-color:var(--amber);}
+}
+@media (max-width:900px){
+  .settings-layout{display:block;}
+  .settings-nav{
+    position:static;flex-direction:row;gap:8px;overflow-x:auto;
+    padding-bottom:4px;margin-bottom:14px;
+    scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;
+  }
+  .settings-nav::-webkit-scrollbar{display:none;}
+  .settings-navbtn{flex:0 0 auto;width:auto;white-space:nowrap;min-height:44px;padding:9px 15px;}
+}
 @media (max-width:900px){
   .titleblock{padding:14px 16px;gap:10px;}
   .titleblock .logo{height:40px;}
@@ -1645,9 +1677,44 @@ function applyMenuPerms(){
   const s = document.getElementById('settingsBtn');
   if (s) s.hidden = !(can('export') || can('restore'));
 }
+let SETTINGS_SECTION = 'general';
 function renderSettings(){
   const box = document.getElementById('panel-settings');
   if(!box) return;
+  const canAdmin = CURRENT_ROLE === 'admin';
+  const sections = [{id:'general', label:'النسخ الاحتياطي', icon:'save'}];
+  if(canAdmin){
+    sections.push({id:'users', label:'المستخدمون', icon:'user'});
+    sections.push({id:'audit', label:'سجل التغييرات', icon:'clock'});
+  }
+  // a section this role can't see (e.g. remembered from another account) falls
+  // back to the first available one
+  if(!sections.some(s=>s.id===SETTINGS_SECTION)) SETTINGS_SECTION = sections[0].id;
+  box.innerHTML = `
+    <div class="section-title">
+      <div><h2>الإعدادات</h2><div class="desc">${canAdmin ? 'النسخ الاحتياطي والاستعادة وإدارة المستخدمين وسجل التغييرات' : 'إدارة النسخ الاحتياطي واستعادة البيانات'}</div></div>
+    </div>
+    <div class="settings-layout">
+      <nav class="settings-nav" aria-label="أقسام الإعدادات">
+        ${sections.map(s=>`<button type="button" class="settings-navbtn" data-section="${s.id}" onclick="settingsGo('${s.id}')">${icon(s.icon)}<span>${s.label}</span></button>`).join('')}
+      </nav>
+      <div class="settings-body" id="settingsBody"></div>
+    </div>
+  `;
+  settingsGo(SETTINGS_SECTION);
+}
+// only the active section is built, so the users table and the change log are
+// fetched when they are opened rather than on every visit to settings
+function settingsGo(id){
+  SETTINGS_SECTION = id;
+  document.querySelectorAll('.settings-navbtn').forEach(b=>b.classList.toggle('active', b.dataset.section===id));
+  const body = document.getElementById('settingsBody');
+  if(!body) return;
+  if(id==='users'){ body.innerHTML = '<div id="panel-users"></div>'; renderUsers(); }
+  else if(id==='audit'){ body.innerHTML = '<div id="panel-audit"></div>'; renderAudit(); }
+  else body.innerHTML = renderSettingsGeneral();
+}
+function renderSettingsGeneral(){
   const rows = [];
   if(can('export')) rows.push(`
     <div class="setting-row">
@@ -1665,19 +1732,7 @@ function renderSettings(){
       </div>
       <button class="btn ghost" onclick="triggerRestore()">اختيار ملف والاستعادة</button>
     </div>`);
-  // users management and the change log moved here from their own tabs; both are
-  // admin-only, so they are revealed together below the backup/restore rows
-  const canAdmin = CURRENT_ROLE === 'admin';
-  box.innerHTML = `
-    <div class="section-title">
-      <div><h2>الإعدادات</h2><div class="desc">${canAdmin ? 'النسخ الاحتياطي والاستعادة وإدارة المستخدمين وسجل التغييرات' : 'إدارة النسخ الاحتياطي واستعادة البيانات'}</div></div>
-    </div>
-    <div class="card">
-      ${rows.length ? rows.join('') : '<div class="small-muted">لا توجد إعدادات متاحة لحسابك.</div>'}
-    </div>
-    ${canAdmin ? '<div id="panel-users"></div><div id="panel-audit"></div>' : ''}
-  `;
-  if(canAdmin){ renderUsers(); renderAudit(); }
+  return `<div class="card">${rows.length ? rows.join('') : '<div class="small-muted">لا توجد إعدادات متاحة لحسابك.</div>'}</div>`;
 }
 function _pfMsg(text, kind){
   const el = document.getElementById('pfMsg');
