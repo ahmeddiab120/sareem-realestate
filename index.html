@@ -284,6 +284,30 @@ h1,h2,h3,.label-font{font-family:'Cairo',-apple-system,BlinkMacSystemFont,'SF Pr
   .locked-actions .btn{width:100%;justify-content:center;min-height:44px;}
 }
 
+.pag-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 2px 2px;}
+.pag-info{font-size:12px;color:var(--ink-soft);}
+.pag-controls{display:flex;align-items:center;gap:5px;flex-wrap:wrap;}
+.pag-btn{
+  min-width:34px;height:34px;padding:0 9px;border-radius:10px;
+  border:1px solid var(--border);background:var(--card);color:var(--ink);
+  font-family:'Cairo',sans-serif;font-weight:700;font-size:13px;line-height:1;
+  cursor:pointer;display:inline-flex;align-items:center;justify-content:center;
+  transition:all .18s cubic-bezier(0.25,0.1,0.25,1);
+}
+.pag-btn:disabled{opacity:.35;cursor:not-allowed;}
+.pag-btn.active{border-color:var(--amber);background:rgba(192,138,46,0.16);color:var(--brick-dark);}
+@media (hover:hover){ .pag-btn:hover:not(:disabled):not(.active){border-color:var(--amber);} }
+.pag-dots{padding:0 2px;color:var(--ink-soft);}
+.pag-size{
+  height:34px;border-radius:10px;border:1px solid var(--border);
+  background:var(--card);color:var(--ink);font-family:'Cairo',sans-serif;
+  font-size:12.5px;padding:0 8px;cursor:pointer;margin-inline-start:4px;
+}
+@media (max-width:600px){
+  .pag-bar{justify-content:center;text-align:center;}
+  .pag-info{width:100%;}
+}
+
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px;}
 .kpi{
   container-type:inline-size;
@@ -2288,6 +2312,102 @@ function renderDashboard(){
 }
 
 /* =========================================================
+   RESPONSIVE TABLE PAGINATION
+   wide screens -> classic page numbers; narrow screens -> a "load more"
+   button. each table keeps its own state so their filters don't reset
+   one another, and the full filtered list is always what gets paginated.
+========================================================= */
+const PAGE_SIZES = [25, 50, 100];
+const PAG = {};
+function isNarrow(){ return window.matchMedia('(max-width:600px)').matches; }
+function pagState(name){
+  if(!PAG[name]) PAG[name] = {page:1, size:50, shown:50, all:false, sig:null};
+  return PAG[name];
+}
+function rerenderTable(name){
+  if(name==='materials') renderMaterialsTable();
+  else if(name==='prices') renderPricesTable();
+  else if(name==='po') renderPOTable();
+}
+// slice the full filtered list for the current view; a changed filter signature
+// jumps back to the start so you never land on a now-empty page
+function paginate(name, rows, sig){
+  const st = pagState(name);
+  const total = rows.length;
+  if(sig !== undefined && st.sig !== sig){ st.sig = sig; st.page = 1; st.shown = st.size; }
+  if(st.all) return {slice:rows, total, all:true};
+  if(isNarrow()){
+    let shown = Math.min(st.shown, total);
+    if(shown < 1) shown = Math.min(st.size, total);
+    st.shown = shown;
+    return {slice:rows.slice(0, shown), total, narrow:true, shown, hasMore: shown < total};
+  }
+  const size = st.size;
+  const pages = Math.max(1, Math.ceil(total/size));
+  if(st.page > pages) st.page = pages;
+  if(st.page < 1) st.page = 1;
+  const start = (st.page-1)*size;
+  return {slice:rows.slice(start, start+size), total, narrow:false, page:st.page, pages, size, start};
+}
+function pagGo(name, page){ pagState(name).page = page; rerenderTable(name); }
+function pagSize(name, size){ const st = pagState(name); st.size = Number(size)||50; st.page = 1; st.shown = st.size; rerenderTable(name); }
+function pagMore(name){ const st = pagState(name); st.shown = (st.shown||50) + 50; rerenderTable(name); }
+function pageWindow(page, pages){
+  if(pages <= 7){ const a=[]; for(let i=1;i<=pages;i++) a.push(i); return a; }
+  const a=[1];
+  if(page>3) a.push('…');
+  for(let i=Math.max(2,page-1); i<=Math.min(pages-1,page+1); i++) a.push(i);
+  if(page<pages-2) a.push('…');
+  a.push(pages);
+  return a;
+}
+function pagFooter(name, meta){
+  if(!meta || meta.all || meta.total === 0) return '';
+  if(meta.narrow){
+    if(!meta.hasMore) return `<div class="pag-bar"><span class="pag-info">تم عرض كل الـ ${meta.total} صف</span></div>`;
+    return `<div class="pag-bar">
+      <span class="pag-info">معروض ${meta.shown} من ${meta.total}</span>
+      <button class="btn sm secondary" onclick="pagMore('${name}')">عرض المزيد</button>
+    </div>`;
+  }
+  const from = meta.total ? meta.start+1 : 0;
+  const to = Math.min(meta.start+meta.size, meta.total);
+  const nums = pageWindow(meta.page, meta.pages).map(p=> p==='…'
+    ? '<span class="pag-dots">…</span>'
+    : `<button class="pag-btn${p===meta.page?' active':''}" onclick="pagGo('${name}',${p})">${p}</button>`).join('');
+  return `<div class="pag-bar">
+    <span class="pag-info">معروض ${from}–${to} من ${meta.total}</span>
+    <div class="pag-controls">
+      <button class="pag-btn" ${meta.page<=1?'disabled':''} onclick="pagGo('${name}',${meta.page-1})" aria-label="الصفحة السابقة">‹</button>
+      ${nums}
+      <button class="pag-btn" ${meta.page>=meta.pages?'disabled':''} onclick="pagGo('${name}',${meta.page+1})" aria-label="الصفحة التالية">›</button>
+      <select class="pag-size" onchange="pagSize('${name}',this.value)" aria-label="عدد الصفوف في الصفحة">
+        ${PAGE_SIZES.map(s=>`<option value="${s}"${s===meta.size?' selected':''}>${s} صف</option>`).join('')}
+      </select>
+    </div>
+  </div>`;
+}
+// CSV must cover every filtered row, not just the visible page, so the table is
+// rendered in full for a moment, scraped by exportCsv, then put back
+function exportTableCsv(name, tableId, filename){
+  const st = pagState(name);
+  const was = st.all;
+  st.all = true;
+  rerenderTable(name);
+  exportCsv(tableId, filename);
+  st.all = was;
+  rerenderTable(name);
+}
+// swapping between a phone and a desktop width flips the pagination style, so the
+// active table is redrawn the moment the 600px breakpoint is crossed
+(function(){
+  const mq = window.matchMedia('(max-width:600px)');
+  const onChange = ()=>{ if(['materials','prices','po'].indexOf(CURRENT_TAB)>=0) rerenderTable(CURRENT_TAB); };
+  if(mq.addEventListener) mq.addEventListener('change', onChange);
+  else if(mq.addListener) mq.addListener(onChange);
+})();
+
+/* =========================================================
    MATERIALS TAB
 ========================================================= */
 let materialsFilter = {q:'', cat:''};
@@ -2307,12 +2427,13 @@ function renderMaterials(){
       <div class="spacer"></div>
       <span class="small-muted" id="materialFilterCount"></span>
     </div>
-    <div class="card"><div class="table-scroll" id="materialsTableWrap"></div></div>
+    <div class="card"><div class="table-scroll" id="materialsTableWrap"></div><div id="materialsPag"></div></div>
   `;
   renderMaterialsTable();
 }
 function renderMaterialsTable(){
   const wrap = document.getElementById('materialsTableWrap');
+  if(!wrap) return;
   let rows = DB.materials.filter(m=>{
     const q = materialsFilter.q.trim().toLowerCase();
     const matchQ = !q || m.name_ar.toLowerCase().includes(q) || m.code.toLowerCase().includes(q) || (m.name_en||'').toLowerCase().includes(q);
@@ -2326,11 +2447,13 @@ function renderMaterialsTable(){
       ? `معروض ${rows.length} من ${DB.materials.length} مادة`
       : `${DB.materials.length} مادة مسجلة`;
   }
+  const meta = paginate('materials', rows, materialsFilter.cat+'|'+materialsFilter.q.trim().toLowerCase());
+  const pageRows = meta.slice;
   wrap.innerHTML = `
     <table>
       <thead><tr><th>الكود</th><th>اسم المادة</th><th>الماركة</th><th>القسم</th><th>الوحدة</th><th>آخر سعر</th><th>الحالة</th><th></th></tr></thead>
       <tbody>
-        ${rows.length? rows.map(m=>{
+        ${pageRows.length? pageRows.map(m=>{
           const latest = latestPricesPerSupplier(m.id).sort((a,b)=>b.price_date.localeCompare(a.price_date));
           const lastPrice = latest.length? Math.min(...latest.map(p=>Number(p.price))) : null;
           return `<tr>
@@ -2350,6 +2473,8 @@ function renderMaterialsTable(){
       </tbody>
     </table>
   `;
+  const pag = document.getElementById('materialsPag');
+  if(pag) pag.innerHTML = pagFooter('materials', meta);
 }
 function openMaterialForm(id){
   if(denyIf('edit_master')) return;
@@ -2626,13 +2751,14 @@ function renderPrices(){
       <div class="spacer"></div>
       <span class="small-muted" id="priceFilterCount"></span>
     </div>
-    <div class="card"><div class="table-scroll" id="pricesTableWrap"></div></div>
+    <div class="card"><div class="table-scroll" id="pricesTableWrap"></div><div id="pricesPag"></div></div>
   `;
   enhanceSearchableSelects(el);
   renderPricesTable();
 }
 function renderPricesTable(){
   const wrap = document.getElementById('pricesTableWrap');
+  if(!wrap) return;
   const q = pricesFilter.q.trim().toLowerCase();
   let rows = DB.prices.filter(p=>{
     if(pricesFilter.material && p.material_id!==pricesFilter.material) return false;
@@ -2652,11 +2778,13 @@ function renderPricesTable(){
       ? `معروض ${rows.length} من ${DB.prices.length} سجل سعر`
       : `${DB.prices.length} سجل سعر`;
   }
+  const meta = paginate('prices', rows, pricesFilter.material+'|'+pricesFilter.supplier+'|'+pricesFilter.cat+'|'+pricesFilter.q.trim().toLowerCase());
+  const pageRows = meta.slice;
   wrap.innerHTML = `
     <table>
       <thead><tr><th style="white-space:nowrap">التاريخ</th><th>المادة</th><th>القسم</th><th>المورد</th><th>السعر</th><th>الوحدة</th><th>شامل الضريبة</th><th>شامل النقل</th><th>مرجع العرض</th><th></th></tr></thead>
       <tbody>
-        ${rows.length? rows.map(p=>{
+        ${pageRows.length? pageRows.map(p=>{
           const m = DB.materials.find(x=>x.id===p.material_id);
           const s = DB.suppliers.find(x=>x.id===p.supplier_id);
           return `<tr>
@@ -2675,6 +2803,8 @@ function renderPricesTable(){
       </tbody>
     </table>
   `;
+  const pag = document.getElementById('pricesPag');
+  if(pag) pag.innerHTML = pagFooter('prices', meta);
 }
 function openPriceForm(){
   if(denyIf('edit_master')) return;
@@ -3423,14 +3553,15 @@ function renderPO(){
       </select>
       <div class="spacer"></div>
       <span class="small-muted" id="poFilterCount"></span>
-      <button class="btn sm ghost" onclick="exportCsv('poTable','أوامر_الشراء')" ${DB.purchase_orders.length?'':'disabled'}>تصدير CSV</button>
+      <button class="btn sm ghost" onclick="exportTableCsv('po','poTable','أوامر_الشراء')" ${DB.purchase_orders.length?'':'disabled'}>تصدير CSV</button>
     </div>
-    <div class="card"><div class="table-scroll" id="poTableWrap"></div></div>
+    <div class="card"><div class="table-scroll" id="poTableWrap"></div><div id="poPag"></div></div>
   `;
   renderPOTable();
 }
 function renderPOTable(){
   const wrap = document.getElementById('poTableWrap');
+  if(!wrap) return;
   const q = poFilter.q.trim().toLowerCase();
   const filtering = !!(q || poFilter.project || poFilter.supplier || poFilter.status);
   let rows = DB.purchase_orders.filter(po=>{
@@ -3446,11 +3577,13 @@ function renderPOTable(){
       ? `معروض ${rows.length} من ${DB.purchase_orders.length} أمر شراء`
       : `${DB.purchase_orders.length} أمر شراء`;
   }
+  const meta = paginate('po', rows, poFilter.project+'|'+poFilter.supplier+'|'+poFilter.status+'|'+q);
+  const pageRows = meta.slice;
   wrap.innerHTML = `
     <table id="poTable">
       <thead><tr><th>رقم الأمر</th><th>المشروع</th><th>المورد</th><th>تاريخ الأمر</th><th>التسليم المتوقع</th><th>الإجمالي</th><th>الحالة</th><th class="no-export"></th></tr></thead>
       <tbody>
-        ${rows.length? rows.map(po=>{
+        ${pageRows.length? pageRows.map(po=>{
           const proj = DB.projects.find(p=>p.id===po.project_id);
           const sup = DB.suppliers.find(s=>s.id===po.supplier_id);
           const statusClass = po.status==='تم التوريد بالكامل' ? 'ok' : (po.status==='متأخر'||po.status==='ملغي' ? 'off' : 'info');
@@ -3472,6 +3605,8 @@ function renderPOTable(){
       </tbody>
     </table>
   `;
+  const pag = document.getElementById('poPag');
+  if(pag) pag.innerHTML = pagFooter('po', meta);
 }
 function normPONumber(v){ return String(v||'').trim().toUpperCase(); }
 function nextPONumber(dateStr){
