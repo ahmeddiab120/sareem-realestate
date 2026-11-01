@@ -3377,7 +3377,7 @@ async function deleteContractorRow(projectId, rowId){
    PURCHASE ORDERS TAB
 ========================================================= */
 const PO_STATUSES = ['قيد التنفيذ','تم التوريد بالكامل','تم التوريد جزئياً','متأخر','ملغي'];
-let poFilter = {project:'', status:'', q:''};
+let poFilter = {project:'', supplier:'', status:'', q:''};
 let poDraftItems = [];
 let poDraftId = null;
 
@@ -3413,6 +3413,10 @@ function renderPO(){
         <option value="">كل المشاريع</option>
         ${DB.projects.map(p=>`<option value="${p.id}" ${poFilter.project===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}
       </select>
+      <select id="poSupFilter" onchange="poFilter.supplier=this.value; renderPOTable();">
+        <option value="">كل الموردين</option>
+        ${DB.suppliers.map(s=>`<option value="${s.id}" ${poFilter.supplier===s.id?'selected':''}>${esc(s.name)}</option>`).join('')}
+      </select>
       <select id="poStatusFilter" onchange="poFilter.status=this.value; renderPOTable();">
         <option value="">كل الحالات</option>
         ${PO_STATUSES.map(s=>`<option ${poFilter.status===s?'selected':''}>${s}</option>`).join('')}
@@ -3428,12 +3432,13 @@ function renderPO(){
 function renderPOTable(){
   const wrap = document.getElementById('poTableWrap');
   const q = poFilter.q.trim().toLowerCase();
-  const filtering = !!(q || poFilter.project || poFilter.status);
+  const filtering = !!(q || poFilter.project || poFilter.supplier || poFilter.status);
   let rows = DB.purchase_orders.filter(po=>{
     const matchProj = !poFilter.project || po.project_id===poFilter.project;
+    const matchSup = !poFilter.supplier || po.supplier_id===poFilter.supplier;
     const matchStat = !poFilter.status || po.status===poFilter.status;
     const matchQ = !q || (po.po_number||'').toLowerCase().includes(q);
-    return matchProj && matchStat && matchQ;
+    return matchProj && matchSup && matchStat && matchQ;
   }).sort((a,b)=> b.order_date.localeCompare(a.order_date));
   const countEl = document.getElementById('poFilterCount');
   if(countEl){
