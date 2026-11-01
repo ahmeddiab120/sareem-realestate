@@ -694,6 +694,19 @@ select#activeProjectSelect option{background:#33291F;color:#F3ECDD;text-align:ce
   #permMatrix th, #permMatrix td{padding:8px 6px;}
 }
 
+/* collapsible report sections — same <details> idea as the permissions block,
+   so the reports tab is a short list of headers you open one at a time */
+.report-fold{border:1px solid var(--glass-border);border-radius:var(--radius);background:var(--glass);box-shadow:var(--shadow-sm);margin-bottom:14px;overflow:hidden;}
+.report-fold>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;padding:14px 18px;font-size:15px;font-weight:700;color:var(--brick-dark);}
+.report-fold>summary::-webkit-details-marker{display:none;}
+.report-fold>summary::before{content:'◀';font-size:11px;flex:0 0 auto;transition:transform .15s;}
+.report-fold[open]>summary::before{transform:rotate(-90deg);}
+@media (hover:hover){ .report-fold>summary:hover{background:rgba(181,80,46,0.06);} }
+.report-fold>.card{margin:0;border:none;border-top:1px solid var(--glass-border);border-radius:0;box-shadow:none;background:transparent;backdrop-filter:none;-webkit-backdrop-filter:none;}
+/* the fold header already shows the title on screen; the inner h3 exists only so
+   the printed report keeps its title */
+.report-fold .fold-title{display:none;}
+
 @media print{
   .titleblock, .tabs, .toolbar, .btn, .no-print{display:none !important;}
   body{background:#fff;color:#111;}
@@ -718,6 +731,11 @@ select#activeProjectSelect option{background:#33291F;color:#F3ECDD;text-align:ce
   body.printing-report .card{display:none !important;}
   body.printing-report .card.print-target{display:block !important;}
   body.printing-report .section-title{display:none !important;}
+  /* the collapsible fold is screen-only chrome — print just the target card */
+  body.printing-report .report-fold{border:none;background:none;box-shadow:none;overflow:visible;margin:0;padding:0;}
+  body.printing-report .report-fold>summary{display:none !important;}
+  body.printing-report .report-fold>.card{border:1px solid #999;background:#fff;border-radius:0;margin:0;}
+  body.printing-report .fold-title{display:block !important;}
   body.printing-doc > .titleblock,
   body.printing-doc > .tabs,
   body.printing-doc > .wrap{display:none !important;}
@@ -3923,6 +3941,9 @@ function printPO(id){
 function printReportCard(id){
   const card = document.getElementById(id);
   if(!card) return;
+  // a collapsed <details> hides its content from the printer, so open the fold first
+  const fold = card.closest('details.report-fold');
+  if(fold) fold.open = true;
   enterPrintMode('printing-report');
   card.classList.add('print-target');
   runPrint();
@@ -4252,133 +4273,152 @@ function renderReports(){
   destroySearchablesIn(el);
   const reportCats = [...new Set(DB.materials.map(m=>m.category).filter(Boolean))].sort();
   el.innerHTML = `
-    <div class="section-title"><div><h2>التقارير</h2><div class="desc">تقارير قابلة للطباعة والتصدير</div></div></div>
+    <div class="section-title"><div><h2>التقارير</h2><div class="desc">تقارير قابلة للطباعة والتصدير — اضغط على اسم التقرير لفتحه</div></div></div>
 
-    <div class="card no-print">
-      <h3 style="margin-top:0;font-size:15px;color:var(--brick-dark);">1) تقرير تكلفة مشروع</h3>
-      <div class="toolbar">
-        <select id="reportProjSelect" onchange="renderProjectCostReport()">
-          <option value="">اختر مشروعاً...</option>
-          ${DB.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}
-        </select>
-        <button class="btn sm secondary" onclick="printReportCard('card-projectcost')">${icon('print')} طباعة</button>
-        <button class="btn sm ghost" onclick="exportCsv('projectCostTable','تقرير_تكلفة_مشروع')">تصدير CSV</button>
+    <details class="report-fold">
+      <summary>1) تقرير تكلفة مشروع</summary>
+      <div class="card no-print">
+        <div class="toolbar">
+          <select id="reportProjSelect" onchange="renderProjectCostReport()">
+            <option value="">اختر مشروعاً...</option>
+            ${DB.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}
+          </select>
+          <button class="btn sm secondary" onclick="printReportCard('card-projectcost')">${icon('print')} طباعة</button>
+          <button class="btn sm ghost" onclick="exportCsv('projectCostTable','تقرير_تكلفة_مشروع')">تصدير CSV</button>
+        </div>
       </div>
-    </div>
-    <div class="card" id="card-projectcost"><div id="projectCostReportWrap"><div class="small-muted">اختر مشروعاً لعرض التقرير</div></div></div>
+      <div class="card" id="card-projectcost"><div id="projectCostReportWrap"><div class="small-muted">اختر مشروعاً لعرض التقرير</div></div></div>
+    </details>
 
-    <div class="card no-print">
-      <h3 style="margin-top:0;font-size:15px;color:var(--brick-dark);">2) تاريخ أسعار مادة</h3>
-      <div class="toolbar">
-        <select id="reportMatSelect" onchange="renderMaterialHistoryReport()">
-          <option value="">اختر مادة...</option>
-          ${DB.materials.map(m=>`<option value="${m.id}">${esc(m.name_ar)}</option>`).join('')}
-        </select>
-        <button class="btn sm secondary" onclick="printReportCard('card-mathistory')">${icon('print')} طباعة</button>
-        <button class="btn sm ghost" onclick="exportCsv('matHistoryTable','تاريخ_أسعار_مادة')">تصدير CSV</button>
+    <details class="report-fold">
+      <summary>2) تاريخ أسعار مادة</summary>
+      <div class="card no-print">
+        <div class="toolbar">
+          <select id="reportMatSelect" onchange="renderMaterialHistoryReport()">
+            <option value="">اختر مادة...</option>
+            ${DB.materials.map(m=>`<option value="${m.id}">${esc(m.name_ar)}</option>`).join('')}
+          </select>
+          <button class="btn sm secondary" onclick="printReportCard('card-mathistory')">${icon('print')} طباعة</button>
+          <button class="btn sm ghost" onclick="exportCsv('matHistoryTable','تاريخ_أسعار_مادة')">تصدير CSV</button>
+        </div>
       </div>
-    </div>
-    <div class="card" id="card-mathistory"><div id="matHistoryReportWrap"><div class="small-muted">اختر مادة لعرض تاريخ أسعارها</div></div></div>
+      <div class="card" id="card-mathistory"><div id="matHistoryReportWrap"><div class="small-muted">اختر مادة لعرض تاريخ أسعارها</div></div></div>
+    </details>
 
-    <div class="card" id="card-costm2">
-      <h3 style="margin-top:0;font-size:15px;color:var(--brick-dark);">3) تكلفة المتر المربع — مقارنة كل المشاريع</h3>
-      <div class="toolbar no-print"><button class="btn sm secondary" onclick="printReportCard('card-costm2')">${icon('print')} طباعة</button></div>
-      <div id="costM2ReportWrap"></div>
-    </div>
-
-    <div class="card" id="card-supplierusage">
-      <h3 style="margin-top:0;font-size:15px;color:var(--brick-dark);">4) تقرير استخدام الموردين</h3>
-      <div class="small-muted no-print" style="margin-bottom:8px;">عدد المواد وقيمة أوامر الشراء الصادرة لكل مورد — فلتر المشروع يحدد أوامر الشراء وقيمتها فقط، أما عدد المواد وسجلات الأسعار فهي على قاعدة البيانات كلها. فلتر القسم يحسب مواد ذلك القسم في كل الأعمدة، وتصبح قيمة أوامر الشراء هي قيمة بنود القسم المختار وحدها دون باقي بنود الأمر</div>
-      <div class="toolbar no-print">
-        <input type="text" id="supplierUsageSearch" placeholder="بحث بالاسم أو الكود أو ما يوفّره..." oninput="renderSupplierUsageReport()">
-        <select id="supplierUsageProjFilter" onchange="renderSupplierUsageReport()">
-          <option value="">كل المشاريع</option>
-          ${DB.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}
-        </select>
-        <select id="supplierUsageCatFilter" onchange="renderSupplierUsageReport()">
-          <option value="">كل الأقسام</option>
-          ${reportCats.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}
-        </select>
-        <select id="supplierUsageStateFilter" onchange="renderSupplierUsageReport()">
-          <option value="">كل الموردين</option>
-          <option value="has">لهم أوامر شراء</option>
-          <option value="none">ليس لهم أوامر شراء</option>
-        </select>
-        <button class="btn sm ghost" onclick="clearSupplierUsageFilters()">مسح الفلاتر</button>
-        <button class="btn sm secondary" onclick="printReportCard('card-supplierusage')">${icon('print')} طباعة</button>
-        <button class="btn sm ghost" onclick="exportCsv('supplierUsageTable','تقرير_استخدام_الموردين')">تصدير CSV</button>
+    <details class="report-fold">
+      <summary>3) تكلفة المتر المربع — مقارنة كل المشاريع</summary>
+      <div class="card" id="card-costm2">
+        <h3 class="fold-title" style="margin-top:0;font-size:15px;color:var(--brick-dark);">3) تكلفة المتر المربع — مقارنة كل المشاريع</h3>
+        <div class="toolbar no-print"><button class="btn sm secondary" onclick="printReportCard('card-costm2')">${icon('print')} طباعة</button></div>
+        <div id="costM2ReportWrap"></div>
       </div>
-      <div id="supplierUsageWrap"></div>
-    </div>
+    </details>
 
-    <div class="card" id="card-consumption">
-      <h3 style="margin-top:0;font-size:15px;color:var(--brick-dark);">5) تقرير استهلاك المواد</h3>
-      <div class="small-muted no-print" style="margin-bottom:8px;">الكميات المخططة لكل مادة مقابل ما استُهلك ودُفع فعلياً حسب أوامر الشراء — اعرض كل المشاريع أو اختر مشروعاً محدداً</div>
-      <div class="toolbar no-print">
-        <input type="text" id="consumptionSearch" placeholder="بحث بالمادة أو الكود..." oninput="renderMaterialConsumptionReport()">
-        <select id="consumptionProjFilter" onchange="renderMaterialConsumptionReport()">
-          <option value="">كل المشاريع</option>
-          ${DB.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}
-        </select>
-        <select id="consumptionCatFilter" onchange="renderMaterialConsumptionReport()">
-          <option value="">كل الأقسام</option>
-          ${reportCats.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}
-        </select>
-        <select id="consumptionStateFilter" onchange="renderMaterialConsumptionReport()">
-          <option value="">كل المواد</option>
-          <option value="used">تم استهلاك جزء منها</option>
-          <option value="unused">لم يُستهلك منها شيء</option>
-          <option value="over">تجاوزت الكمية المخططة</option>
-        </select>
-        <button class="btn sm ghost" onclick="clearConsumptionFilters()">مسح الفلاتر</button>
-        <button class="btn sm secondary" onclick="printReportCard('card-consumption')">${icon('print')} طباعة</button>
-        <button class="btn sm ghost" onclick="exportCsv('materialConsumptionTable','تقرير_استهلاك_المواد')">تصدير CSV</button>
+    <details class="report-fold">
+      <summary>4) تقرير استخدام الموردين</summary>
+      <div class="card" id="card-supplierusage">
+        <h3 class="fold-title" style="margin-top:0;font-size:15px;color:var(--brick-dark);">4) تقرير استخدام الموردين</h3>
+        <div class="small-muted no-print" style="margin-bottom:8px;">عدد المواد وقيمة أوامر الشراء الصادرة لكل مورد — فلتر المشروع يحدد أوامر الشراء وقيمتها فقط، أما عدد المواد وسجلات الأسعار فهي على قاعدة البيانات كلها. فلتر القسم يحسب مواد ذلك القسم في كل الأعمدة، وتصبح قيمة أوامر الشراء هي قيمة بنود القسم المختار وحدها دون باقي بنود الأمر</div>
+        <div class="toolbar no-print">
+          <input type="text" id="supplierUsageSearch" placeholder="بحث بالاسم أو الكود أو ما يوفّره..." oninput="renderSupplierUsageReport()">
+          <select id="supplierUsageProjFilter" onchange="renderSupplierUsageReport()">
+            <option value="">كل المشاريع</option>
+            ${DB.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}
+          </select>
+          <select id="supplierUsageCatFilter" onchange="renderSupplierUsageReport()">
+            <option value="">كل الأقسام</option>
+            ${reportCats.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}
+          </select>
+          <select id="supplierUsageStateFilter" onchange="renderSupplierUsageReport()">
+            <option value="">كل الموردين</option>
+            <option value="has">لهم أوامر شراء</option>
+            <option value="none">ليس لهم أوامر شراء</option>
+          </select>
+          <button class="btn sm ghost" onclick="clearSupplierUsageFilters()">مسح الفلاتر</button>
+          <button class="btn sm secondary" onclick="printReportCard('card-supplierusage')">${icon('print')} طباعة</button>
+          <button class="btn sm ghost" onclick="exportCsv('supplierUsageTable','تقرير_استخدام_الموردين')">تصدير CSV</button>
+        </div>
+        <div id="supplierUsageWrap"></div>
       </div>
-      <div id="materialConsumptionWrap"></div>
-    </div>
+    </details>
 
-    <div class="card" id="card-contractors">
-      <h3 style="margin-top:0;font-size:15px;color:var(--brick-dark);">6) تقرير المقاولين</h3>
-      <div class="small-muted no-print" style="margin-bottom:8px;">القيم التعاقدية والمدفوع والمتبقي لكل مقاول — اعرض كل المشاريع أو اختر مشروعاً محدداً</div>
-      <div class="toolbar no-print">
-        <select id="contractorsProjFilter" onchange="renderContractorsReport()">
-          <option value="">كل المشاريع</option>
-          ${DB.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}
-        </select>
-        <button class="btn sm secondary" onclick="printReportCard('card-contractors')">${icon('print')} طباعة</button>
-        <button class="btn sm ghost" onclick="exportCsv('contractorsReportTable','تقرير_المقاولين')">تصدير CSV</button>
+    <details class="report-fold">
+      <summary>5) تقرير استهلاك المواد</summary>
+      <div class="card" id="card-consumption">
+        <h3 class="fold-title" style="margin-top:0;font-size:15px;color:var(--brick-dark);">5) تقرير استهلاك المواد</h3>
+        <div class="small-muted no-print" style="margin-bottom:8px;">الكميات المخططة لكل مادة مقابل ما استُهلك ودُفع فعلياً حسب أوامر الشراء — اعرض كل المشاريع أو اختر مشروعاً محدداً</div>
+        <div class="toolbar no-print">
+          <input type="text" id="consumptionSearch" placeholder="بحث بالمادة أو الكود..." oninput="renderMaterialConsumptionReport()">
+          <select id="consumptionProjFilter" onchange="renderMaterialConsumptionReport()">
+            <option value="">كل المشاريع</option>
+            ${DB.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}
+          </select>
+          <select id="consumptionCatFilter" onchange="renderMaterialConsumptionReport()">
+            <option value="">كل الأقسام</option>
+            ${reportCats.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}
+          </select>
+          <select id="consumptionStateFilter" onchange="renderMaterialConsumptionReport()">
+            <option value="">كل المواد</option>
+            <option value="used">تم استهلاك جزء منها</option>
+            <option value="unused">لم يُستهلك منها شيء</option>
+            <option value="over">تجاوزت الكمية المخططة</option>
+          </select>
+          <button class="btn sm ghost" onclick="clearConsumptionFilters()">مسح الفلاتر</button>
+          <button class="btn sm secondary" onclick="printReportCard('card-consumption')">${icon('print')} طباعة</button>
+          <button class="btn sm ghost" onclick="exportCsv('materialConsumptionTable','تقرير_استهلاك_المواد')">تصدير CSV</button>
+        </div>
+        <div id="materialConsumptionWrap"></div>
       </div>
-      <div id="contractorsReportWrap"></div>
-    </div>
+    </details>
 
-    <div class="card" id="card-pricevariance">
-      <h3 style="margin-top:0;font-size:15px;color:var(--brick-dark);">7) تقرير سعر المواد في الدراسة مقابل سعر الشراء</h3>
-      <div class="small-muted no-print" style="margin-bottom:8px;">سعر كل مادة كما هو مثبّت في جدول كميات المشروع مقابل آخر سعر اشتُريت به فعلياً ومتوسط أسعار أوامر شراء المشروع نفسه — الأوامر الملغية لا تُحتسب، والمتوسط مرجّح بالكميات</div>
-      <div class="toolbar no-print">
-        <input type="text" id="priceVarianceSearch" placeholder="بحث بالمادة أو الكود..." oninput="renderPriceVarianceReport()">
-        <select id="priceVarianceProjFilter" onchange="renderPriceVarianceReport()">
-          <option value="">كل المشاريع</option>
-          ${DB.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}
-        </select>
-        <select id="priceVarianceCatFilter" onchange="renderPriceVarianceReport()">
-          <option value="">كل الأقسام</option>
-          ${reportCats.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}
-        </select>
-        <select id="priceVarianceMatFilter" onchange="renderPriceVarianceReport()">
-          <option value="">كل المواد</option>
-          ${DB.materials.map(m=>`<option value="${m.id}">${esc(m.name_ar)}</option>`).join('')}
-        </select>
-        <select id="priceVarianceStateFilter" onchange="renderPriceVarianceReport()">
-          <option value="">كل الحالات</option>
-          <option value="bought">صدر لها أمر شراء</option>
-          <option value="notbought">لم يصدر لها أمر شراء</option>
-        </select>
-        <button class="btn sm ghost" onclick="clearPriceVarianceFilters()">مسح الفلاتر</button>
-        <button class="btn sm secondary" onclick="printReportCard('card-pricevariance')">${icon('print')} طباعة</button>
-        <button class="btn sm ghost" onclick="exportCsv('priceVarianceTable','تقرير_سعر_الجدول_مقابل_الشراء')">تصدير CSV</button>
+    <details class="report-fold">
+      <summary>6) تقرير المقاولين</summary>
+      <div class="card" id="card-contractors">
+        <h3 class="fold-title" style="margin-top:0;font-size:15px;color:var(--brick-dark);">6) تقرير المقاولين</h3>
+        <div class="small-muted no-print" style="margin-bottom:8px;">القيم التعاقدية والمدفوع والمتبقي لكل مقاول — اعرض كل المشاريع أو اختر مشروعاً محدداً</div>
+        <div class="toolbar no-print">
+          <select id="contractorsProjFilter" onchange="renderContractorsReport()">
+            <option value="">كل المشاريع</option>
+            ${DB.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}
+          </select>
+          <button class="btn sm secondary" onclick="printReportCard('card-contractors')">${icon('print')} طباعة</button>
+          <button class="btn sm ghost" onclick="exportCsv('contractorsReportTable','تقرير_المقاولين')">تصدير CSV</button>
+        </div>
+        <div id="contractorsReportWrap"></div>
       </div>
-      <div id="priceVarianceWrap"></div>
-    </div>
+    </details>
+
+    <details class="report-fold">
+      <summary>7) تقرير سعر المواد في الدراسة مقابل سعر الشراء</summary>
+      <div class="card" id="card-pricevariance">
+        <h3 class="fold-title" style="margin-top:0;font-size:15px;color:var(--brick-dark);">7) تقرير سعر المواد في الدراسة مقابل سعر الشراء</h3>
+        <div class="small-muted no-print" style="margin-bottom:8px;">سعر كل مادة كما هو مثبّت في جدول كميات المشروع مقابل آخر سعر اشتُريت به فعلياً ومتوسط أسعار أوامر شراء المشروع نفسه — الأوامر الملغية لا تُحتسب، والمتوسط مرجّح بالكميات</div>
+        <div class="toolbar no-print">
+          <input type="text" id="priceVarianceSearch" placeholder="بحث بالمادة أو الكود..." oninput="renderPriceVarianceReport()">
+          <select id="priceVarianceProjFilter" onchange="renderPriceVarianceReport()">
+            <option value="">كل المشاريع</option>
+            ${DB.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}
+          </select>
+          <select id="priceVarianceCatFilter" onchange="renderPriceVarianceReport()">
+            <option value="">كل الأقسام</option>
+            ${reportCats.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}
+          </select>
+          <select id="priceVarianceMatFilter" onchange="renderPriceVarianceReport()">
+            <option value="">كل المواد</option>
+            ${DB.materials.map(m=>`<option value="${m.id}">${esc(m.name_ar)}</option>`).join('')}
+          </select>
+          <select id="priceVarianceStateFilter" onchange="renderPriceVarianceReport()">
+            <option value="">كل الحالات</option>
+            <option value="bought">صدر لها أمر شراء</option>
+            <option value="notbought">لم يصدر لها أمر شراء</option>
+          </select>
+          <button class="btn sm ghost" onclick="clearPriceVarianceFilters()">مسح الفلاتر</button>
+          <button class="btn sm secondary" onclick="printReportCard('card-pricevariance')">${icon('print')} طباعة</button>
+          <button class="btn sm ghost" onclick="exportCsv('priceVarianceTable','تقرير_سعر_الجدول_مقابل_الشراء')">تصدير CSV</button>
+        </div>
+        <div id="priceVarianceWrap"></div>
+      </div>
+    </details>
   `;
   enhanceSearchableSelects(el);
   renderCostM2Report();
