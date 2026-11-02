@@ -2092,11 +2092,7 @@ function showUnsavedGuard(){
   document.body.appendChild(g);
   document.getElementById('guardStay').onclick = ()=> g.remove();
   document.getElementById('guardDiscard').onclick = ()=>{ g.remove(); closeModal(); };
-  g.addEventListener('click', e=>{ if(e.target===g) g.remove(); });
 }
-document.getElementById('modalOverlay').addEventListener('click', e=>{
-  if(e.target.id==='modalOverlay') requestCloseModal();
-});
 
 /* ===== SEARCHABLE SELECT (type-to-filter combobox) ===== */
 const SEARCHABLE_SELECTOR = '#f_material, #f_supplier, #f_copy_src, #priceMatFilter, #priceSupplierFilter, #compareMatSelect, #reportMatSelect, #priceVarianceMatFilter, .po-mat-select';
