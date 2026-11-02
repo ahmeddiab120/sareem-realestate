@@ -2040,6 +2040,20 @@ async function changePassword(){
 /* =========================================================
    MODAL HELPERS
 ========================================================= */
+// a real edit flags the form so an accidental close (backdrop click or «إلغاء») is
+// confirmed first; programmatic fills never fire these events, so untouched forms close at once
+let _modalDirty = false;
+// typing in a searchable dropdown's filter box is not a real edit — only a selection (change on the hidden <select>) or a normal field counts
+function _markModalDirty(e){
+  const t = e && e.target;
+  if(t && t.classList && t.classList.contains('searchable-input')) return;
+  _modalDirty = true;
+}
+(function(){
+  const box = document.getElementById('modalBox');
+  box.addEventListener('input', _markModalDirty, true);
+  box.addEventListener('change', _markModalDirty, true);
+})();
 function openModal(html, wide){
   const box = document.getElementById('modalBox');
   destroySearchablesIn(box);
@@ -2047,13 +2061,41 @@ function openModal(html, wide){
   box.classList.toggle('wide', !!wide);
   document.getElementById('modalOverlay').classList.add('active');
   enhanceSearchableSelects(box);
+  _modalDirty = false;
 }
 function closeModal(){
+  const guard = document.getElementById('unsavedGuard');
+  if(guard) guard.remove();
   document.getElementById('modalOverlay').classList.remove('active');
   document.getElementById('modalBox').classList.remove('wide');
+  _modalDirty = false;
+}
+function requestCloseModal(){
+  if(_modalDirty) showUnsavedGuard();
+  else closeModal();
+}
+function showUnsavedGuard(){
+  if(document.getElementById('unsavedGuard')) return;
+  const g = document.createElement('div');
+  g.id = 'unsavedGuard';
+  g.className = 'modal-overlay active';
+  g.style.zIndex = '200';
+  g.innerHTML = `
+    <div class="modal" style="max-width:420px;">
+      <h3>بيانات لم تُحفظ</h3>
+      <div class="modal-sub">توجد بيانات في هذه النافذة لم يتم حفظها بعد. هل تريد إغلاق النافذة وفقدان هذه البيانات؟</div>
+      <div class="modal-actions">
+        <button class="btn danger" id="guardDiscard">إغلاق دون حفظ</button>
+        <button class="btn ghost" id="guardStay">البقاء في النافذة</button>
+      </div>
+    </div>`;
+  document.body.appendChild(g);
+  document.getElementById('guardStay').onclick = ()=> g.remove();
+  document.getElementById('guardDiscard').onclick = ()=>{ g.remove(); closeModal(); };
+  g.addEventListener('click', e=>{ if(e.target===g) g.remove(); });
 }
 document.getElementById('modalOverlay').addEventListener('click', e=>{
-  if(e.target.id==='modalOverlay') closeModal();
+  if(e.target.id==='modalOverlay') requestCloseModal();
 });
 
 /* ===== SEARCHABLE SELECT (type-to-filter combobox) ===== */
@@ -2527,7 +2569,7 @@ function openMaterialForm(id){
     </div>
     <div class="modal-actions">
       <button class="btn" id="matSaveBtn" onclick="saveMaterial('${m?m.id:''}')">${m?'حفظ التعديلات':'إضافة المادة'}</button>
-      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+      <button class="btn ghost" onclick="requestCloseModal()">إلغاء</button>
     </div>
   `);
 }
@@ -2691,7 +2733,7 @@ function openSupplierForm(id){
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="saveSupplier('${s?s.id:''}')">${s?'حفظ التعديلات':'إضافة المورد'}</button>
-      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+      <button class="btn ghost" onclick="requestCloseModal()">إلغاء</button>
     </div>
   `);
 }
@@ -2849,7 +2891,7 @@ function openPriceForm(){
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="savePrice()">حفظ السعر</button>
-      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+      <button class="btn ghost" onclick="requestCloseModal()">إلغاء</button>
     </div>
   `);
 }
@@ -2949,7 +2991,7 @@ function openProjectForm(id){
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="saveProject('${p?p.id:''}')">${p?'حفظ التعديلات':'إضافة المشروع'}</button>
-      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+      <button class="btn ghost" onclick="requestCloseModal()">إلغاء</button>
     </div>
   `);
 }
@@ -3318,7 +3360,7 @@ function openQtyForm(projectId, rowId){
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="saveQtyRow('${projectId}','${r?r.id:''}')">${r?'حفظ التعديلات':'إضافة البند'}</button>
-      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+      <button class="btn ghost" onclick="requestCloseModal()">إلغاء</button>
     </div>
   `);
   qtyMaterialChanged();
@@ -3421,7 +3463,7 @@ function openCopyQtyForm(projectId){
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="copyQuantitiesFrom('${projectId}')">نسخ البنود</button>
-      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+      <button class="btn ghost" onclick="requestCloseModal()">إلغاء</button>
     </div>
   `);
   copyQtyPreview(projectId);
@@ -3474,7 +3516,7 @@ function openContractorForm(projectId, rowId){
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="saveContractorRow('${projectId}','${c?c.id:''}')">${c?'حفظ التعديلات':'إضافة المقاول'}</button>
-      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+      <button class="btn ghost" onclick="requestCloseModal()">إلغاء</button>
     </div>
   `);
   contractorRemainderPreview();
@@ -3693,7 +3735,7 @@ function openPOForm(id){
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="savePO()">${po?'حفظ التعديلات':'إضافة الأمر'}</button>
-      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+      <button class="btn ghost" onclick="requestCloseModal()">إلغاء</button>
     </div>
   `, true);
   poRenderItems();
@@ -5088,7 +5130,7 @@ function openEmailForm(i){
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="saveEmailChange(${i})">تغيير البريد</button>
-      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+      <button class="btn ghost" onclick="requestCloseModal()">إلغاء</button>
     </div>
   `);
 }
@@ -5140,7 +5182,7 @@ function openUserForm(){
     </div>
     <div class="modal-actions">
       <button class="btn" id="addUserBtn" onclick="addUser()">إضافة</button>
-      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+      <button class="btn ghost" onclick="requestCloseModal()">إلغاء</button>
     </div>
   `);
 }
