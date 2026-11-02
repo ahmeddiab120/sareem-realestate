@@ -2095,7 +2095,7 @@ function showUnsavedGuard(){
 }
 
 /* ===== SEARCHABLE SELECT (type-to-filter combobox) ===== */
-const SEARCHABLE_SELECTOR = '#f_material, #f_supplier, #f_copy_src, #priceMatFilter, #priceSupplierFilter, #compareMatSelect, #reportMatSelect, #priceVarianceMatFilter, .po-mat-select';
+const SEARCHABLE_SELECTOR = '#f_material, #f_supplier, #f_copy_src, #priceMatFilter, #priceSupplierFilter, #compareMatSelect, #reportMatSelect, #priceVarianceMatFilter, #costPosMatFilter, #costPosSupplierFilter, .po-mat-select';
 let _openSearchableApi = null;
 function _escSel(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function enhanceSearchableSelects(root){
@@ -4457,6 +4457,59 @@ function renderReports(){
         <div id="priceVarianceWrap"></div>
       </div>
     </details>
+
+    <details class="report-fold">
+      <summary>8) تقرير موقف تكلفة المواد</summary>
+      <div class="card" id="card-costposition">
+        <h3 class="fold-title" style="margin-top:0;font-size:15px;color:var(--brick-dark);">8) تقرير موقف تكلفة المواد</h3>
+        <div class="small-muted no-print" style="margin-bottom:8px;">موقف تكلفة كل مادة: المعتمد في الدراسة مقابل المشتريات الفعلية والتكلفة النهائية المتوقعة عند استكمال شراء الكميات — الأوامر الملغية لا تُحتسب، ومتوسط سعر الشراء مرجّح بالكميات، والتقرير للقراءة والتحليل فقط</div>
+        <div class="toolbar no-print">
+          <input type="text" id="costPosSearch" placeholder="بحث باسم المادة أو كودها..." oninput="renderCostPositionReport()">
+          <select id="costPosProjFilter" onchange="renderCostPositionReport()">
+            <option value="">كل المشاريع</option>
+            ${DB.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}
+          </select>
+          <select id="costPosCatFilter" onchange="renderCostPositionReport()">
+            <option value="">كل الأقسام</option>
+            ${reportCats.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}
+          </select>
+          <select id="costPosMatFilter" onchange="renderCostPositionReport()">
+            <option value="">كل المواد</option>
+            ${DB.materials.map(m=>`<option value="${m.id}">${esc(m.name_ar)}</option>`).join('')}
+          </select>
+          <select id="costPosSupplierFilter" onchange="renderCostPositionReport()">
+            <option value="">كل الموردين</option>
+            ${DB.suppliers.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}
+          </select>
+          <input type="date" id="costPosFrom" title="من تاريخ" onchange="renderCostPositionReport()">
+          <input type="date" id="costPosTo" title="إلى تاريخ" onchange="renderCostPositionReport()">
+          <select id="costPosStateFilter" onchange="renderCostPositionReport()">
+            <option value="">كل حالات الموقف</option>
+            <option value="notbought">لم يتم الشراء</option>
+            <option value="partial">شراء جزئي</option>
+            <option value="complete">اكتملت الكمية</option>
+            <option value="exceeded">تجاوزت كمية الدراسة</option>
+          </select>
+          <select id="costPosDevFilter" onchange="renderCostPositionReport()">
+            <option value="">كل حالات الانحراف</option>
+            <option value="higher">أعلى من الدراسة</option>
+            <option value="lower">أقل من الدراسة</option>
+            <option value="equal">مطابق للدراسة</option>
+          </select>
+          <select id="costPosSort" onchange="renderCostPositionReport()">
+            <option value="variance_desc">ترتيب: الأعلى انحرافاً مالياً</option>
+            <option value="variancepct_desc">ترتيب: الأعلى نسبة انحراف</option>
+            <option value="name_asc">ترتيب: اسم المادة</option>
+          </select>
+          <button class="btn sm ghost" onclick="clearCostPositionFilters()">مسح الفلاتر</button>
+          <button class="btn sm secondary" onclick="printReportCard('card-costposition')">${icon('print')} طباعة</button>
+          <button class="btn sm ghost" onclick="exportCsv('costPositionTable','تقرير_موقف_تكلفة_المواد')">تصدير CSV</button>
+        </div>
+        <div id="costPositionSummary"></div>
+        <div id="costPositionCharts" class="no-print"></div>
+        <div id="costPositionWrap"></div>
+      </div>
+    </details>
   `;
   enhanceSearchableSelects(el);
   renderCostM2Report();
@@ -4464,6 +4517,7 @@ function renderReports(){
   renderMaterialConsumptionReport();
   renderContractorsReport();
   renderPriceVarianceReport();
+  renderCostPositionReport();
 }
 function renderSupplierUsageReport(){
   const wrap = document.getElementById('supplierUsageWrap');
@@ -4804,6 +4858,269 @@ function clearPriceVarianceFilters(){
   const q = document.getElementById('priceVarianceSearch');
   if(q) q.value = '';
   renderPriceVarianceReport();
+}
+
+/* =========================================================
+   REPORT 8 — MATERIAL COST POSITION (read-only)
+   Compares each material's approved study cost against actual
+   (non-cancelled) purchases and the projected final cost to finish
+   buying the remaining study quantity. Never writes to study, POs or prices.
+========================================================= */
+function costPositionRows(opts){
+  opts = opts || {};
+  const projects = opts.onlyId ? DB.projects.filter(p=>p.id===opts.onlyId) : DB.projects;
+  const out = [];
+  projects.forEach(p=>{
+    const pid = p.id;
+    computeProjectCost(pid).lineItems.forEach(li=>{
+      if(!li.material) return;
+      const mat = li.material;
+      // study side — unit price comes from resolveUnitPrice, so a "manual" row is frozen
+      const studyQty = Number(li.quantity)||0;
+      const studyPrice = Number(li.unitPrice)||0;
+      const studyCost = studyQty*studyPrice;
+      // purchased side — non-cancelled PO lines, narrowed by supplier + date range
+      let purchasedQty = 0, purchasedCost = 0, lastPrice = null, lastDate = '';
+      DB.purchase_orders.forEach(po=>{
+        if(po.project_id!==pid || po.status==='ملغي') return;
+        if(opts.supplierId && po.supplier_id!==opts.supplierId) return;
+        const d = String(po.order_date||'');
+        if(opts.from && d < opts.from) return;
+        if(opts.to && (d==='' || d > opts.to)) return;
+        (po.items||[]).forEach(it=>{
+          if(it.material_id!==mat.id) return;
+          const q = Number(it.quantity)||0, up = Number(it.unit_price)||0;
+          purchasedQty += q; purchasedCost += q*up;
+          if(d >= lastDate){ lastDate = d; lastPrice = up; }
+        });
+      });
+      const weightedAvg = purchasedQty>0 ? purchasedCost/purchasedQty : null;
+      const remainingQty = Math.max(studyQty - purchasedQty, 0);
+      const excessQty = Math.max(purchasedQty - studyQty, 0);
+      const remainingAtStudy = weightedAvg===null;
+      // rule 7: with no purchase yet, project the remaining quantity at the study price
+      const remainingCost = remainingQty * (remainingAtStudy ? studyPrice : weightedAvg);
+      const finalExpected = purchasedCost + remainingCost;
+      const variance = finalExpected - studyCost;
+      out.push({
+        project:p, material:mat, studyQty, studyPrice, studyCost,
+        purchasedQty, purchasedCost, weightedAvg, lastPrice,
+        remainingQty, excessQty, remainingCost, remainingAtStudy, finalExpected, variance,
+        variancePct: studyCost>0 ? variance/studyCost*100 : null,   // rule 8: no misleading % on a zero study
+        purchasedPct: studyQty>0 ? purchasedQty/studyQty*100 : null,
+        statusKey: purchasedQty===0 ? 'notbought' : (purchasedQty<studyQty ? 'partial' : (purchasedQty===studyQty ? 'complete' : 'exceeded')),
+        devKey: variance>0 ? 'higher' : (variance<0 ? 'lower' : 'equal'),
+      });
+    });
+  });
+  return out;
+}
+const COSTPOS_STATUS = {
+  notbought:{label:'لم يتم الشراء', cls:'off'},
+  partial:{label:'شراء جزئي', cls:'info'},
+  complete:{label:'اكتملت الكمية', cls:'ok'},
+  exceeded:{label:'تجاوزت كمية الدراسة', cls:'off'},
+};
+function _costPosVarCell(v){
+  const color = v>0 ? 'var(--red)' : (v<0 ? 'var(--green)' : 'inherit');
+  return `<td class="mono" style="color:${color};font-weight:${v?700:400};">${(v>0?'+':'')+fmt(v)}</td>`;
+}
+function _costPosPctCell(v){
+  if(v===null) return `<td class="mono">—</td>`;
+  const color = v>0 ? 'var(--red)' : (v<0 ? 'var(--green)' : 'inherit');
+  return `<td class="mono" style="color:${color};font-weight:${v?700:400};">${(v>0?'+':'')+fmt(v)}%</td>`;
+}
+function renderCostPositionReport(){
+  const wrap = document.getElementById('costPositionWrap');
+  if(!wrap) return;
+  const sumEl = document.getElementById('costPositionSummary');
+  const chartEl = document.getElementById('costPositionCharts');
+  const val = id => { const e = document.getElementById(id); return e ? e.value : ''; };
+  const onlyId = val('costPosProjFilter');
+  const cat = val('costPosCatFilter');
+  const matId = val('costPosMatFilter');
+  const supId = val('costPosSupplierFilter');
+  const from = val('costPosFrom');
+  const to = val('costPosTo');
+  const stateF = val('costPosStateFilter');
+  const devF = val('costPosDevFilter');
+  const sortF = val('costPosSort') || 'variance_desc';
+  const q = val('costPosSearch').trim().toLowerCase();
+
+  const all = costPositionRows({onlyId, supplierId:supId, from, to});
+  const rows = all
+    .filter(r=> !cat || r.material.category===cat)
+    .filter(r=> !matId || r.material.id===matId)
+    .filter(r=> !q || String(r.material.name_ar||'').toLowerCase().includes(q)
+      || String(r.material.name_en||'').toLowerCase().includes(q)
+      || String(r.material.code||'').toLowerCase().includes(q))
+    .filter(r=> !stateF || r.statusKey===stateF)
+    .filter(r=> !devF || r.devKey===devF);
+  if(sortF==='name_asc') rows.sort((a,b)=> String(a.material.name_ar||'').localeCompare(String(b.material.name_ar||'')));
+  else if(sortF==='variancepct_desc') rows.sort((a,b)=> (b.variancePct===null?-Infinity:b.variancePct)-(a.variancePct===null?-Infinity:a.variancePct));
+  else rows.sort((a,b)=> b.variance-a.variance);
+
+  // executive summary — totals are summed from the same filtered rows as the table
+  const T = rows.reduce((a,r)=>{ a.study+=r.studyCost; a.purch+=r.purchasedCost; a.final+=r.finalExpected; a.vari+=r.variance; a.qty+=r.purchasedQty; return a; }, {study:0,purch:0,final:0,vari:0,qty:0});
+  const overCount = rows.filter(r=>r.variance>0).length;
+  const saveCount = rows.filter(r=>r.variance<0).length;
+  const notBoughtCount = rows.filter(r=>r.purchasedQty===0).length;
+  const varPctTotal = T.study>0 ? T.vari/T.study*100 : null;
+  const units = [...new Set(rows.map(r=>r.material.unit).filter(Boolean))];
+  const projName = onlyId ? (DB.projects.find(p=>p.id===onlyId)||{}).name||'' : '';
+  const supName = supId ? (DB.suppliers.find(s=>s.id===supId)||{}).name||'' : '';
+  const matName = matId ? (DB.materials.find(m=>m.id===matId)||{}).name_ar||'' : '';
+  if(sumEl) sumEl.innerHTML = `
+    <div class="small-muted" style="margin:2px 0 10px;">النطاق: ${onlyId? esc(projName):'كل المشاريع'} | القسم: ${cat? esc(cat):'كل الأقسام'} | المادة: ${matId? esc(matName):'كل المواد'} | المورد: ${supId? esc(supName):'كل الموردين'} | الفترة: ${from? esc(from):'—'} إلى ${to? esc(to):'—'} | تاريخ التقرير: ${todayStr()} | عدد البنود: ${rows.length}</div>
+    <div class="kpis">
+      <div class="kpi"><div class="n mono">${fmt(T.study)}</div><div class="l">إجمالي تكلفة الدراسة</div></div>
+      <div class="kpi"><div class="n mono">${fmt(T.purch)}</div><div class="l">إجمالي المشتريات المعتمدة</div></div>
+      <div class="kpi"><div class="n mono">${fmt(T.final)}</div><div class="l">التكلفة النهائية المتوقعة</div></div>
+      <div class="kpi"><div class="n mono" style="color:${T.vari>0?'var(--red)':(T.vari<0?'var(--green)':'var(--brick-dark)')}">${(T.vari>0?'+':'')+fmt(T.vari)}</div><div class="l">الانحراف المالي المتوقع</div></div>
+      <div class="kpi"><div class="n mono" style="color:${varPctTotal>0?'var(--red)':(varPctTotal<0?'var(--green)':'var(--brick-dark)')}">${varPctTotal===null?'—':(varPctTotal>0?'+':'')+fmt(varPctTotal)+'%'}</div><div class="l">نسبة الانحراف عن الدراسة</div></div>
+      <div class="kpi"><div class="n mono">${fmt(T.qty)}</div><div class="l">إجمالي الكميات المشتراة</div></div>
+      <div class="kpi"><div class="n" style="color:var(--red)">${overCount}</div><div class="l">مواد تجاوزت ميزانيتها</div></div>
+      <div class="kpi"><div class="n" style="color:var(--green)">${saveCount}</div><div class="l">مواد حققت وفرًا</div></div>
+      <div class="kpi"><div class="n">${notBoughtCount}</div><div class="l">مواد لم يتم شراؤها</div></div>
+    </div>
+    ${units.length>1? `<div class="small-muted" style="margin:-6px 0 12px;">* إجمالي الكميات المشتراة يجمع وحدات قياس مختلفة (${units.length} وحدة) ويظهر للاستئناس فقط</div>`:''}
+  `;
+  if(chartEl) chartEl.innerHTML = costPositionChartsHtml(rows, T);
+
+  const cols = onlyId? 18 : 19;
+  wrap.innerHTML = `
+    <div class="table-scroll">
+    <table id="costPositionTable">
+      <thead><tr>${onlyId?'':'<th>المشروع</th>'}<th>كود المادة</th><th>اسم المادة</th><th>القسم</th><th>الوحدة</th><th>كمية الدراسة</th><th>سعر الوحدة (دراسة)</th><th>تكلفة الدراسة</th><th>الكمية المشتراة</th><th>نسبة المشتراة</th><th>تكلفة المشتريات</th><th>متوسط سعر الشراء</th><th>آخر سعر شراء</th><th>الكمية المتبقية</th><th>تكلفة المتبقي المتوقعة</th><th>التكلفة النهائية المتوقعة</th><th>الانحراف المالي</th><th>نسبة الانحراف</th><th>حالة المادة</th></tr></thead>
+      <tbody>
+        ${rows.length? rows.map(r=>{
+          const st = COSTPOS_STATUS[r.statusKey];
+          return `<tr onclick="openCostPositionDetail('${r.project.id}','${r.material.id}')" style="cursor:pointer;" title="اضغط لعرض تفاصيل المادة وأوامر الشراء">
+            ${onlyId?'':`<td>${esc(r.project.name)}</td>`}
+            <td class="mono">${esc(r.material.code||'—')}</td>
+            <td>${esc(r.material.name_ar)}</td>
+            <td><span class="badge-cat">${esc(r.material.category||'')}</span></td>
+            <td>${esc(r.material.unit||'')}</td>
+            <td class="mono">${fmt(r.studyQty)}</td>
+            <td class="mono">${fmt(r.studyPrice)}</td>
+            <td class="mono">${fmt(r.studyCost)}</td>
+            <td class="mono">${fmt(r.purchasedQty)}</td>
+            <td class="mono">${r.purchasedPct===null?'—':fmt(r.purchasedPct)+'%'}</td>
+            <td class="mono">${fmt(r.purchasedCost)}</td>
+            <td class="mono">${r.weightedAvg===null?'—':fmt(r.weightedAvg)}</td>
+            <td class="mono">${r.lastPrice===null?'لم يتم الشراء':fmt(r.lastPrice)}</td>
+            <td class="mono">${fmt(r.remainingQty)}</td>
+            <td class="mono"${r.remainingAtStudy&&r.remainingQty>0?' title="التقدير مبني على سعر الدراسة لعدم وجود مشتريات بعد"':''}>${fmt(r.remainingCost)}${r.remainingAtStudy&&r.remainingQty>0?' *':''}</td>
+            <td class="mono" style="font-weight:700;">${fmt(r.finalExpected)}</td>
+            ${_costPosVarCell(r.variance)}
+            ${_costPosPctCell(r.variancePct)}
+            <td><span class="pill ${st.cls}">${st.label}${r.statusKey==='exceeded'&&r.excessQty>0?` (+${fmt(r.excessQty)})`:''}</span></td>
+          </tr>`;
+        }).join('') : `<tr class="empty-row"><td colspan="${cols}">${all.length? 'لا توجد بنود مطابقة للفلاتر المختارة':'لا توجد كميات مسجلة في الدراسة بعد'}</td></tr>`}
+      </tbody>
+    </table>
+    </div>
+  `;
+}
+function costPositionChartsHtml(rows, T){
+  if(!rows.length) return '';
+  const w = (v, max)=> max>0 ? Math.max(0, Math.min(100, v/max*100)) : 0;
+  const max1 = Math.max(T.study, T.final, 1);
+  const top = rows.filter(r=>r.variance>0).sort((a,b)=>b.variance-a.variance).slice(0,8);
+  const max2 = top.length? top[0].variance : 1;
+  const q3 = rows.slice().sort((a,b)=>b.studyCost-a.studyCost).slice(0,8);
+  return `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin:4px 0 16px;">
+      <div>
+        <div class="small-muted" style="font-weight:700;margin-bottom:10px;">تكلفة الدراسة مقابل التكلفة النهائية المتوقعة</div>
+        <div class="bar-row"><div class="bar-label">تكلفة الدراسة</div><div class="bar-track"><div class="bar-fill" style="width:${w(T.study,max1)}%"></div></div><div class="bar-val">${fmt(T.study)}</div></div>
+        <div class="bar-row"><div class="bar-label">المتوقعة</div><div class="bar-track"><div class="bar-fill" style="width:${w(T.final,max1)}%"></div></div><div class="bar-val">${fmt(T.final)}</div></div>
+      </div>
+      <div>
+        <div class="small-muted" style="font-weight:700;margin-bottom:10px;">أعلى المواد تجاوزًا للتكلفة</div>
+        ${top.length? top.map(r=>`<div class="bar-row"><div class="bar-label">${esc(r.material.name_ar)}</div><div class="bar-track"><div class="bar-fill" style="width:${w(r.variance,max2)}%"></div></div><div class="bar-val" style="color:var(--red)">+${fmt(r.variance)}</div></div>`).join('') : `<div class="small-muted">لا توجد مواد متجاوزة في هذا النطاق</div>`}
+      </div>
+      <div>
+        <div class="small-muted" style="font-weight:700;margin-bottom:10px;">الكمية المشتراة مقابل المعتمدة في الدراسة</div>
+        ${q3.map(r=>`<div class="bar-row"><div class="bar-label">${esc(r.material.name_ar)}</div><div class="bar-track"><div class="bar-fill" style="width:${w(r.purchasedPct===null?0:r.purchasedPct,100)}%"></div></div><div class="bar-val">${fmt(r.purchasedQty)} / ${fmt(r.studyQty)}</div></div>`).join('')}
+      </div>
+    </div>
+  `;
+}
+function clearCostPositionFilters(){
+  ['costPosProjFilter','costPosCatFilter','costPosMatFilter','costPosSupplierFilter','costPosStateFilter','costPosDevFilter','costPosFrom','costPosTo'].forEach(id=>{
+    const s = document.getElementById(id);
+    if(s){ s.value=''; if(typeof syncSearchable==='function') syncSearchable(s); }
+  });
+  const sortEl = document.getElementById('costPosSort'); if(sortEl) sortEl.value='variance_desc';
+  const q = document.getElementById('costPosSearch'); if(q) q.value='';
+  renderCostPositionReport();
+}
+function openCostPositionDetail(pid, matId){
+  const p = DB.projects.find(x=>x.id===pid);
+  const mat = DB.materials.find(m=>m.id===matId);
+  if(!p || !mat) return;
+  const li = computeProjectCost(pid).lineItems.find(l=> l.material && l.material.id===matId);
+  const studyQty = li? Number(li.quantity)||0 : 0;
+  const studyPrice = li? Number(li.unitPrice)||0 : 0;
+  const studyCost = studyQty*studyPrice;
+  // full picture for this material in this project: every non-cancelled PO line
+  const lines = [];
+  DB.purchase_orders.forEach(po=>{
+    if(po.project_id!==pid || po.status==='ملغي') return;
+    const sup = DB.suppliers.find(s=>s.id===po.supplier_id);
+    (po.items||[]).forEach(it=>{
+      if(it.material_id!==matId) return;
+      lines.push({poId:po.id, po_number:po.po_number||'', date:String(po.order_date||''), supplier:sup?sup.name:'—', qty:Number(it.quantity)||0, price:Number(it.unit_price)||0});
+    });
+  });
+  lines.sort((a,b)=> a.date.localeCompare(b.date) || String(a.po_number).localeCompare(String(b.po_number)));
+  const purchasedQty = lines.reduce((s,l)=>s+l.qty,0);
+  const purchasedCost = lines.reduce((s,l)=>s+l.qty*l.price,0);
+  const weightedAvg = purchasedQty>0? purchasedCost/purchasedQty : null;
+  const remainingQty = Math.max(studyQty-purchasedQty,0);
+  const remainingCost = remainingQty*(weightedAvg!==null?weightedAvg:studyPrice);
+  const finalExpected = purchasedCost+remainingCost;
+  const variance = finalExpected-studyCost;
+  const priceVsStudy = weightedAvg!==null? weightedAvg-studyPrice : null;
+  const rowsHtml = lines.length? lines.map(l=>`<tr>
+      <td class="mono">${esc(l.po_number)||'—'}</td>
+      <td class="mono">${esc(l.date)||'—'}</td>
+      <td>${esc(l.supplier)}</td>
+      <td class="mono">${fmt(l.qty)}</td>
+      <td class="mono">${fmt(l.price)}</td>
+      <td class="mono">${fmt(l.qty*l.price)}</td>
+      <td><button class="btn sm ghost" onclick="gotoPOFromReport('${l.poId}')">فتح الأمر</button></td>
+    </tr>`).join('') : `<tr class="empty-row"><td colspan="7">لا توجد أوامر شراء غير ملغية لهذه المادة في هذا المشروع</td></tr>`;
+  openModal(`
+    <h3>تفاصيل المادة: ${esc(mat.name_ar)}</h3>
+    <div class="modal-sub">${esc(mat.code||'—')} • ${esc(mat.category||'—')} • ${esc(p.name)} • الوحدة: ${esc(mat.unit||'—')}</div>
+    <div class="kpis" style="margin:14px 0;">
+      <div class="kpi"><div class="n mono">${fmt(studyQty)}</div><div class="l">كمية الدراسة</div></div>
+      <div class="kpi"><div class="n mono">${fmt(studyPrice)}</div><div class="l">سعر الوحدة في الدراسة</div></div>
+      <div class="kpi"><div class="n mono">${fmt(studyCost)}</div><div class="l">تكلفة الدراسة</div></div>
+      <div class="kpi"><div class="n mono">${fmt(purchasedQty)}</div><div class="l">الكمية المشتراة</div></div>
+      <div class="kpi"><div class="n mono">${weightedAvg===null?'—':fmt(weightedAvg)}</div><div class="l">متوسط سعر الشراء المرجّح</div></div>
+      <div class="kpi"><div class="n mono" style="color:${variance>0?'var(--red)':(variance<0?'var(--green)':'var(--brick-dark)')}">${(variance>0?'+':'')+fmt(variance)}</div><div class="l">الانحراف المالي المتوقع</div></div>
+    </div>
+    <div class="small-muted" style="margin-bottom:6px;">مقارنة سعر الشراء بسعر الدراسة: ${priceVsStudy===null? 'لا توجد مشتريات بعد — التقدير مبني على سعر الدراسة' : `<b style="color:${priceVsStudy>0?'var(--red)':(priceVsStudy<0?'var(--green)':'inherit')}">${(priceVsStudy>0?'+':'')+fmt(priceVsStudy)}${studyPrice? ' ('+(priceVsStudy>0?'+':'')+fmt(priceVsStudy/studyPrice*100)+'%)':''}</b>`}</div>
+    <div class="small-muted" style="margin-bottom:12px;">التكلفة النهائية المتوقعة <b class="mono">${fmt(finalExpected)}</b> = مشتريات <b class="mono">${fmt(purchasedCost)}</b> + متبقٍ متوقع <b class="mono">${fmt(remainingCost)}</b> (${fmt(remainingQty)} ${esc(mat.unit||'')}${weightedAvg===null&&remainingQty>0?' مقدّرة بسعر الدراسة':' بمتوسط سعر الشراء'})</div>
+    <div class="small-muted" style="font-weight:700;margin:6px 0 8px;color:var(--brick-dark);">أوامر الشراء المرتبطة وتطور الأسعار</div>
+    <div class="table-scroll"><table>
+      <thead><tr><th>رقم الأمر</th><th>التاريخ</th><th>المورد</th><th>الكمية</th><th>سعر الوحدة</th><th>القيمة</th><th></th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeModal()">إغلاق</button>
+    </div>
+  `, true);
+}
+function gotoPOFromReport(poId){
+  const po = DB.purchase_orders.find(x=>x.id===poId);
+  if(!po){ toast('أمر الشراء غير موجود'); return; }
+  closeModal();
+  poFilter.q = po.po_number||''; poFilter.project=''; poFilter.supplier=''; poFilter.status='';
+  switchTab('po');
 }
 function renderProjectCostReport(){
   const pid = document.getElementById('reportProjSelect').value;
