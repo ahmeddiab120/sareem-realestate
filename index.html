@@ -5095,6 +5095,13 @@ function renderProjectCostReport(){
   if(!pid){ wrap.innerHTML = `<div class="small-muted">اختر مشروعاً لعرض التقرير</div>`; return; }
   const project = DB.projects.find(p=>p.id===pid);
   const result = computeProjectCost(pid);
+  const finalT = Number(result.finalTotal)||0;
+  const pctOfFinal = v => finalT>0 ? (Number(v)/finalT*100) : null;
+  const catEntries = Object.entries(result.byCategory||{}).sort((a,b)=>b[1]-a[1]);
+  const catRowsHtml = catEntries.length
+    ? catEntries.map(([cat,val])=>`<tr><td>${esc(cat)}</td><td class="mono">${fmt(val)}</td><td class="mono">${pctOfFinal(val)===null?'—':fmt(pctOfFinal(val))+'%'}</td></tr>`).join('')
+      + `<tr style="font-weight:800;"><td>إجمالي تكلفة المواد</td><td class="mono">${fmt(result.materialCost)}</td><td class="mono">${pctOfFinal(result.materialCost)===null?'—':fmt(pctOfFinal(result.materialCost))+'%'}</td></tr>`
+    : `<tr class="empty-row"><td colspan="3">لا توجد أقسام</td></tr>`;
   wrap.innerHTML = `
     <h3 style="margin-top:0;">${esc(project.name)} — تقرير تكلفة المواد</h3>
     <div class="small-muted" style="margin-bottom:10px;">تاريخ التقرير: ${todayStr()} | مساحة البناء: ${fmt(project.built_area)} م²</div>
@@ -5107,6 +5114,16 @@ function renderProjectCostReport(){
           <td class="mono">${fmt(li.quantity)}</td><td>${esc(li.unit)}</td>
           <td class="mono">${fmt(li.unitPrice)}</td><td class="mono">${fmt(li.total)}</td></tr>`).join('')
           : `<tr class="empty-row"><td colspan="6">لا توجد بنود كميات لهذا المشروع</td></tr>`}
+      </tbody>
+    </table>
+    </div>
+    <div class="divider"></div>
+    <h4 style="margin:0 0 8px;">تكلفة كل قسم</h4>
+    <div class="table-scroll">
+    <table id="projectCostByCategoryTable">
+      <thead><tr><th>القسم</th><th>التكلفة</th><th>نسبة من الإجمالي النهائي</th></tr></thead>
+      <tbody>
+        ${catRowsHtml}
       </tbody>
     </table>
     </div>
