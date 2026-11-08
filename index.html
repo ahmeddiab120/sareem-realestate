@@ -3140,7 +3140,8 @@ function buildMap(){
     const c = projectCoords(p);
     const cost = computeProjectCost(p.id);
     const mk = L.marker([c.lat, c.lng]).addTo(leafletMap);
-    mk.bindPopup(`<div class="map-popup"><b>${esc(p.name)}</b>${p.location?`<span>${esc(p.location)}</span><br>`:''}<span>الحالة: ${esc(p.status||'-')}</span><br><span>تكلفة المواد: ${fmt(cost.materialCost)}</span></div>`);
+    const gmaps = `https://www.google.com/maps/search/?api=1&query=${c.lat},${c.lng}`;
+    mk.bindPopup(`<div class="map-popup"><b>${esc(p.name)}</b>${p.location?`<span>${esc(p.location)}</span><br>`:''}<span>الحالة: ${esc(p.status||'-')}</span><br><span>تكلفة المواد: ${fmt(cost.materialCost)}</span><br><a class="btn" href="${gmaps}" target="_blank" rel="noopener noreferrer" style="display:block;text-decoration:none;margin-top:10px;text-align:center;">افتح في خرائط جوجل</a></div>`);
     return mk;
   });
   if(markers.length===1){
