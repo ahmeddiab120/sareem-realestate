@@ -2131,7 +2131,7 @@ function makeSearchable(sel, opts){
   wrap.className = 'searchable' + (opts.theme ? ' ' + opts.theme : '');
   const input = document.createElement('input');
   input.type = 'text'; input.className = 'searchable-input'; input.autocomplete = 'off';
-  if(noSearch) input.readOnly = true;
+  if(noSearch){ input.readOnly = true; input.style.caretColor = 'transparent'; }
   const caret = document.createElement('span');
   caret.className = 'searchable-caret'; caret.textContent = '▼';
   const list = document.createElement('div');
