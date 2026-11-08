@@ -2189,6 +2189,7 @@ function makeSearchable(sel, opts){
     open = false; wrap.classList.remove('open'); list.style.display = 'none';
     if(_openSearchableApi===api) _openSearchableApi = null;
     sync();
+    input.blur();
   }
   function choose(i){
     const it = filtered[i]; if(!it) return;
