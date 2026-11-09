@@ -3649,38 +3649,6 @@ const UNIT_STATUS = {
   pend: {label:'جاري الإفراغ', c:'var(--amber)'},
   done: {label:'تم الإفراغ',   c:'var(--brick-dark)'},
 };
-// One-time seed for the RASA × SAREEM building, imported into the active project
-// on demand. paid default: a transferred unit is assumed settled, an in-progress
-// one is assumed unpaid — the user corrects «المُستلم» per unit after importing.
-const UNIT_SEED_RASA = [
-  {code:"-1B",area:148,rooms:3,price:675000,sale:675000,buyer:"",status:"av"},
-  {code:"-1C",area:148,rooms:3,price:665000,sale:665000,buyer:"",status:"av"},
-  {code:"-1D",area:148,rooms:3,price:675000,sale:670000,buyer:"Tamimi-Al Rawan",status:"done"},
-  {code:"-1A",area:148,rooms:3,price:645000,sale:645000,buyer:"shaibi Al Abdulaziz",status:"done"},
-  {code:"-1E",area:148,rooms:3,price:645000,sale:625000,buyer:"Jizani Lama",status:"done"},
-  {code:"-1F",area:118,rooms:2,price:565000,sale:555000,buyer:"Salama Al Turki",status:"done"},
-  {code:"-2B",area:148,rooms:3,price:685000,sale:685000,buyer:"Zahrani-Al Eyad",status:"done"},
-  {code:"-2C",area:148,rooms:3,price:675000,sale:685000,buyer:"Dekhel-Al Nour",status:"pend"},
-  {code:"-2D",area:148,rooms:3,price:685000,sale:685000,buyer:"Shahrani-Al Yasser",status:"done"},
-  {code:"-2A",area:148,rooms:3,price:655000,sale:645000,buyer:"Issa Al Jawharah",status:"done"},
-  {code:"-2E",area:148,rooms:3,price:655000,sale:645000,buyer:"Abdullah Latifah",status:"done"},
-  {code:"-2F",area:118,rooms:2,price:575000,sale:575000,buyer:"Saleh Tahani",status:"done"},
-  {code:"-3B",area:148,rooms:3,price:695000,sale:695000,buyer:"Ramlawi Khalid",status:"done"},
-  {code:"-3C",area:148,rooms:3,price:685000,sale:685000,buyer:"",status:"av"},
-  {code:"-3D",area:148,rooms:3,price:695000,sale:695000,buyer:"Dosari-Al Fahad",status:"done"},
-  {code:"-3A",area:148,rooms:3,price:665000,sale:665000,buyer:"Boodi Maha",status:"done"},
-  {code:"-3E",area:148,rooms:3,price:665000,sale:665000,buyer:"Batah-Al Mosaed",status:"pend"},
-  {code:"-3F",area:118,rooms:2,price:585000,sale:580000,buyer:"Idres Rashid-Al",status:"done"},
-  {code:"-4B",area:148,rooms:3,price:705000,sale:705000,buyer:"Baadi-Al Abdullah",status:"done"},
-  {code:"-4C",area:148,rooms:3,price:695000,sale:685000,buyer:"Jubairah Abdulrahman",status:"pend"},
-  {code:"-4D",area:148,rooms:3,price:705000,sale:705000,buyer:"Hazazi Abdullah",status:"done"},
-  {code:"-4A",area:148,rooms:3,price:675000,sale:685000,buyer:"Wadyan",status:"done"},
-  {code:"-4E",area:148,rooms:3,price:675000,sale:685000,buyer:"Shokri Abdullah",status:"done"},
-  {code:"-4F",area:118,rooms:2,price:595000,sale:595000,buyer:"Salem Al Faisal",status:"done"},
-  {code:"1R",area:160,rooms:3,price:965000,sale:965000,buyer:"",status:"av"},
-  {code:"2R",area:160,rooms:3,price:965000,sale:965000,buyer:"",status:"av"},
-  {code:"3R",area:130,rooms:3,price:820000,sale:820000,buyer:"",status:"av"},
-];
 function renderUnits(){
   const el = document.getElementById('panel-units');
   if(!el) return;
@@ -3702,15 +3670,12 @@ function renderUnits(){
   const receivedTot = sum(sold, u=>u.paid);
   const outstanding = sum(sold, u=> (Number(u.sale)||0) - (Number(u.paid)||0));
   const finalTot    = sum(units, u=>u.sale);
-  const existingCodes = new Set(units.map(u=>String(u.code).toLowerCase()));
-  const seedMissing = UNIT_SEED_RASA.filter(s=>!existingCodes.has(String(s.code).toLowerCase())).length;
 
   el.innerHTML = `
     <div class="section-title">
       <div><h2>الوحدات السكنية</h2><div class="desc">المشروع النشط: <b>${esc(project.name)}</b> — اختر المشروع من أعلى الصفحة لتبديله</div></div>
       <div class="no-print" style="display:flex;gap:8px;flex-wrap:wrap;">
         ${canEdit?`<button class="btn" onclick="openUnitForm('${project.id}')">+ إضافة وحدة</button>`:''}
-        ${canEdit && seedMissing?`<button class="btn secondary" onclick="importRasaUnits('${project.id}')" title="استيراد وحدات عمارة RASA الجاهزة">استيراد وحدات RASA (${seedMissing})</button>`:''}
         <button class="btn ghost" onclick="printReportCard('panel-units')">${icon('print')} طباعة</button>
       </div>
     </div>
@@ -3741,7 +3706,7 @@ function renderUnits(){
           <span class="u-st">${s.label}</span>
         </button>`;
       }).join('')}</div>`
-      : `<div class="empty-row" style="text-align:center;padding:28px;">لا توجد وحدات مضافة لهذا المشروع بعد${canEdit?' — اضغط «+ إضافة وحدة» أو «استيراد وحدات RASA»':''}</div>`}
+      : `<div class="empty-row" style="text-align:center;padding:28px;">لا توجد وحدات مضافة لهذا المشروع بعد${canEdit?' — اضغط «+ إضافة وحدة»':''}</div>`}
     </div>
 
     ${units.length?`<div class="card">
@@ -3835,21 +3800,6 @@ async function deleteUnitRow(projectId, unitId){
   DB.units = DB.units.filter(x=>!(x.id===unitId && x.project_id===projectId));
   await saveKey('units', DB.units);
   toast('تم الحذف'); renderUnits();
-}
-async function importRasaUnits(projectId){
-  if(denyIf('edit_projects')) return;
-  const existingCodes = new Set(DB.units.filter(u=>u.project_id===projectId).map(u=>String(u.code).toLowerCase()));
-  const toAdd = UNIT_SEED_RASA.filter(s=>!existingCodes.has(String(s.code).toLowerCase()));
-  if(!toAdd.length){ toast('كل الوحدات الجاهزة موجودة بالفعل في هذا المشروع'); return; }
-  const ok = await askConfirm(
-    `سيتم استيراد ${toAdd.length} وحدة جاهزة (عمارة RASA) إلى المشروع الحالي.<br>الوحدات التي «تم إفراغها» ستُعتبر مدفوعة بالكامل، و«جاري الإفراغ» لم يُستلم منها شيء — يمكنك تعديل «المُستلم» لكل وحدة بعد الاستيراد.<br>الوحدات الموجودة مسبقاً (بنفس الكود) لن تتكرر.`,
-    'استيراد الوحدات الجاهزة', 'نعم، استورد');
-  if(!ok) return;
-  toAdd.forEach(s=>{
-    DB.units.push({ id:uid('UN'), project_id:projectId, code:s.code, area:s.area, rooms:s.rooms, price:s.price, sale:s.sale, paid: s.status==='done' ? s.sale : 0, buyer:s.buyer||'', status:s.status });
-  });
-  await saveKey('units', DB.units);
-  toast(`تم استيراد ${toAdd.length} وحدة`); renderUnits();
 }
 
 /* =========================================================
