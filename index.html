@@ -760,7 +760,12 @@ select#activeProjectSelect option{background:#33291F;color:#F3ECDD;text-align:ce
   #reportLetterhead .plh-date{font-size:12px;color:#555;font-family:'IBM Plex Mono',monospace;}
   body.printing-report .card{display:none !important;}
   body.printing-report .card.print-target{display:block !important;}
+  /* the units tab prints a whole panel, not one card — every card inside the
+     target has to come back, or only the KPI strip reaches the paper */
+  body.printing-report .print-target .card{display:block !important;}
   body.printing-report .section-title{display:none !important;}
+  body.printing-report .unit-tile{-webkit-print-color-adjust:exact;print-color-adjust:exact;break-inside:avoid;page-break-inside:avoid;}
+  body.printing-report .unit-floor{break-inside:auto;}
   /* the collapsible fold is screen-only chrome — print just the target card */
   body.printing-report .report-fold{border:none;background:none;box-shadow:none;overflow:visible;margin:0;padding:0;}
   body.printing-report .report-fold>summary{display:none !important;}
@@ -4305,18 +4310,30 @@ function printPO(id){
 
 // each report card prints on its own, so the sheet holds one report and its
 // letterhead instead of the whole reports tab
+// opening a <details> for the printer fires its toggle handler, which would
+// permanently wipe the floors the user had folded — so the ones we opened are
+// put back after the sheet is done
+let printOpenedFolds = [];
+function restorePrintFolds(){
+  printOpenedFolds.forEach(d=>{ d.open = false; });
+  printOpenedFolds = [];
+}
 function printReportCard(id){
   const card = document.getElementById(id);
   if(!card) return;
+  restorePrintFolds(); // an iOS print never fires afterprint, so clean up the last attempt
   // a collapsed <details> hides its content from the printer, so open the fold first
   const fold = card.closest('details.report-fold');
-  if(fold) fold.open = true;
-  card.querySelectorAll('details').forEach(d=>{ d.open = true; }); // open any collapsed floor folds inside the target
+  const targets = fold ? [fold] : [];
+  card.querySelectorAll('details').forEach(d=> targets.push(d)); // any collapsed floor folds inside the target
+  printOpenedFolds = targets.filter(d=>!d.open);
+  printOpenedFolds.forEach(d=>{ d.open = true; });
   enterPrintMode('printing-report');
   card.classList.add('print-target');
   runPrint();
 }
 window.addEventListener('afterprint', ()=>{
+  restorePrintFolds();
   document.body.classList.remove('printing-doc','printing-report');
   document.querySelectorAll('.print-target').forEach(c=> c.classList.remove('print-target'));
 });
