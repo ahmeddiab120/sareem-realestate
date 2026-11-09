@@ -3662,41 +3662,61 @@ const UNIT_STATUS = {
 // doesn't re-open the floors they folded. keyed by the floor string ('' = no floor).
 let collapsedFloors = new Set();
 function toggleFloor(el){ const f = el.dataset.floor==null?'':el.dataset.floor; if(el.open) collapsedFloors.delete(f); else collapsedFloors.add(f); }
-function floorFromCode(code){ const m = String(code==null?'':code).trim().match(/^(-?\d+)/); return m?m[1]:''; }
+function floorFromCode(code){
+  const s = String(code==null?'':code).trim();
+  const r = s.match(/^(\d+)\s*R$/i);   // 1R/2R/3R = الملحق
+  if(r) return r[1]+'R';
+  const m = s.match(/^(-?\d+)/);
+  return m?m[1]:'';
+}
+// الملحق (roof annex) is its own floor class: '1R' = الملحق الأول
+function annexNum(f){ const m = String(f==null?'':f).trim().match(/^(\d+)R$/i); return m?Number(m[1]):null; }
 function autoFillFloor(){
   const f=document.getElementById('u_floor'), c=document.getElementById('u_code');
   if(!f||!c||f.disabled||f.dataset.touched==='1') return;
   const want = floorFromCode(c.value);
-  const n = numOrNull(want);
-  if(n===null || n<FLOOR_MIN || n>FLOOR_MAX) return; // not an offered option: leave the pick alone
+  if(!isOfferedFloor(want)) return; // not an option in the list: leave the pick alone
   f.value = want;
 }
 function numOrNull(f){ if(f===''||f==null) return null; const n=Number(f); return isFinite(n)?n:null; }
-// basements first from -1 downward, then above-ground ascending, then text floors, empty last
+// basements first from -1 downward, then above-ground ascending, then the roof
+// annexes (1R,2R,3R…), then unknown text floors, empty last
 function compareFloors(a,b){
   const na=numOrNull(a), nb=numOrNull(b);
   if(na!==null && nb!==null){ if(na<0&&nb>=0) return -1; if(na>=0&&nb<0) return 1; if(na<0&&nb<0) return nb-na; return na-nb; }
   if(na!==null) return -1; if(nb!==null) return 1;
+  const aa=annexNum(a), ab=annexNum(b);
+  if(aa!==null && ab!==null) return aa-ab;
+  if(aa!==null) return -1; if(ab!==null) return 1;
   const ae=(a===''||a==null), be=(b===''||b==null); if(ae&&be) return 0; if(ae) return 1; if(be) return -1;
   return String(a).localeCompare(String(b),'ar');
 }
-// floors offered in the unit form: basements, ground, then الأول..الخامس عشر
-const FLOOR_MIN = -4, FLOOR_MAX = 15;
+// floors offered in the unit form: basements, ground, الأول..الخامس عشر, then the annexes
+const FLOOR_MIN = -4, FLOOR_MAX = 15, FLOOR_ANNEX_MAX = 3;
 const FLOOR_ORDINAL = ['','الأول','الثاني','الثالث','الرابع','الخامس','السادس','السابع','الثامن','التاسع','العاشر','الحادي عشر','الثاني عشر','الثالث عشر','الرابع عشر','الخامس عشر'];
+function isOfferedFloor(v){
+  const a = annexNum(v);
+  if(a!==null) return a>=1 && a<=FLOOR_ANNEX_MAX;
+  const n = numOrNull(v);
+  return n!==null && n>=FLOOR_MIN && n<=FLOOR_MAX;
+}
 function floorLabel(f){
   if(f===''||f==null) return 'بدون دور';
+  const a = annexNum(f);
+  if(a!==null) return 'الملحق ' + (FLOOR_ORDINAL[a] || a);
   const n = numOrNull(f);
   if(n===null) return String(f);
   if(n===0) return 'الدور الأرضي';
   if(n>0) return 'الدور ' + (FLOOR_ORDINAL[n] || n);
-  const a = Math.abs(n);
-  return a<=4 ? 'القبو ' + FLOOR_ORDINAL[a] : 'قبو ' + a;
+  const ab = Math.abs(n);
+  return ab<=4 ? 'القبو ' + FLOOR_ORDINAL[ab] : 'قبو ' + ab;
 }
 // dropdown order matches the on-page order (compareFloors), so the list reads top-to-bottom
 function floorOptions(current){
   const cur = current==null ? '' : String(current).trim();
   const vals = [];
   for(let n=FLOOR_MIN; n<=FLOOR_MAX; n++) vals.push(String(n));
+  for(let n=1; n<=FLOOR_ANNEX_MAX; n++) vals.push(n+'R');
   if(cur!=='' && !vals.includes(cur)) vals.push(cur); // never drop a floor we don't offer
   vals.sort(compareFloors);
   return `<option value="" ${cur===''?'selected':''}>بدون دور</option>`
