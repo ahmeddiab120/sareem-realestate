@@ -383,6 +383,15 @@ body.panning-x{user-select:none;-webkit-user-select:none;cursor:grabbing;}
 .unit-tile .u-buyer{font-size:11px;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .unit-tile .u-st{font-size:12px;font-weight:700;color:var(--c);}
 .units-total{display:flex;justify-content:space-between;align-items:center;gap:10px;font-weight:800;}
+.unit-floor{border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--card);margin-bottom:12px;overflow:hidden;}
+.unit-floor:last-child{margin-bottom:0;}
+.unit-floor>summary{cursor:pointer;list-style:none;padding:12px 14px;font-weight:800;color:var(--brick-dark);font-family:'Cairo',sans-serif;display:flex;align-items:center;gap:8px;-webkit-user-select:none;user-select:none;}
+.unit-floor>summary::-webkit-details-marker{display:none;}
+.unit-floor>summary::before{content:'▼';font-size:11px;color:var(--ink-soft);transition:transform .15s ease;}
+.unit-floor:not([open])>summary::before{transform:rotate(-90deg);}
+.unit-floor[open]>summary{border-bottom:1px solid var(--border-soft);}
+.unit-floor>summary:focus-visible{outline:2px solid var(--brick);outline-offset:-2px;}
+.unit-floor .units-grid{padding:12px 14px;}
 .empty-row td{text-align:center;color:var(--ink-soft);padding:28px;font-style:italic;}
 .pill{
   display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;
@@ -3649,6 +3658,31 @@ const UNIT_STATUS = {
   pend: {label:'جاري الإفراغ', c:'var(--amber)'},
   done: {label:'تم الإفراغ',   c:'var(--brick-dark)'},
 };
+// which floors the user has manually collapsed; kept across re-renders so a save
+// doesn't re-open the floors they folded. keyed by the floor string ('' = no floor).
+let collapsedFloors = new Set();
+function toggleFloor(el){ const f = el.dataset.floor==null?'':el.dataset.floor; if(el.open) collapsedFloors.delete(f); else collapsedFloors.add(f); }
+function floorFromCode(code){ const m = String(code==null?'':code).trim().match(/^(-?\d+)/); return m?m[1]:''; }
+function autoFillFloor(){ const f=document.getElementById('u_floor'), c=document.getElementById('u_code'); if(!f||!c||f.disabled||f.dataset.touched==='1') return; f.value=floorFromCode(c.value); }
+function numOrNull(f){ if(f===''||f==null) return null; const n=Number(f); return isFinite(n)?n:null; }
+// basements first from -1 downward, then above-ground ascending, then text floors, empty last
+function compareFloors(a,b){
+  const na=numOrNull(a), nb=numOrNull(b);
+  if(na!==null && nb!==null){ if(na<0&&nb>=0) return -1; if(na>=0&&nb<0) return 1; if(na<0&&nb<0) return nb-na; return na-nb; }
+  if(na!==null) return -1; if(nb!==null) return 1;
+  const ae=(a===''||a==null), be=(b===''||b==null); if(ae&&be) return 0; if(ae) return 1; if(be) return -1;
+  return String(a).localeCompare(String(b),'ar');
+}
+function floorLabel(f){ if(f===''||f==null) return 'بدون دور'; return numOrNull(f)!==null ? 'الدور '+f : String(f); }
+function unitTileHTML(project,u){
+  const s = UNIT_STATUS[u.status] || UNIT_STATUS.av;
+  return `<button type="button" class="unit-tile" style="--c:${s.c}" onclick="openUnitForm('${project.id}','${u.id}')">
+    <span class="u-code">${esc(u.code)}</span>
+    <span class="u-area">${fmt(u.area)} م² · ${Number(u.rooms)||0} غرف</span>
+    ${u.buyer?`<span class="u-buyer" title="${esc(u.buyer)}">${esc(u.buyer)}</span>`:''}
+    <span class="u-st">${s.label}</span>
+  </button>`;
+}
 function renderUnits(){
   const el = document.getElementById('panel-units');
   if(!el) return;
@@ -3670,6 +3704,10 @@ function renderUnits(){
   const receivedTot = sum(sold, u=>u.paid);
   const outstanding = sum(sold, u=> (Number(u.sale)||0) - (Number(u.paid)||0));
   const finalTot    = sum(units, u=>u.sale);
+  const floorOf = u => (u.floor==null||String(u.floor).trim()==='') ? '' : String(u.floor).trim();
+  const byFloor = new Map();
+  units.forEach(u=>{ const f=floorOf(u); if(!byFloor.has(f)) byFloor.set(f,[]); byFloor.get(f).push(u); });
+  const floorKeys = Array.from(byFloor.keys()).sort(compareFloors);
 
   el.innerHTML = `
     <div class="section-title">
@@ -3697,15 +3735,13 @@ function renderUnits(){
         <div class="spacer"></div>
         <span class="small-muted">اضغط على أي وحدة لعرض تفاصيلها${canEdit?' وتعديلها':''}</span>
       </div>
-      ${units.length? `<div class="units-grid">${units.map(u=>{
-        const s = UNIT_STATUS[u.status] || UNIT_STATUS.av;
-        return `<button type="button" class="unit-tile" style="--c:${s.c}" onclick="openUnitForm('${project.id}','${u.id}')">
-          <span class="u-code">${esc(u.code)}</span>
-          <span class="u-area">${fmt(u.area)} م² · ${Number(u.rooms)||0} غرف</span>
-          ${u.buyer?`<span class="u-buyer" title="${esc(u.buyer)}">${esc(u.buyer)}</span>`:''}
-          <span class="u-st">${s.label}</span>
-        </button>`;
-      }).join('')}</div>`
+      ${units.length? floorKeys.map(f=>{
+        const open = collapsedFloors.has(f) ? '' : 'open';
+        return `<details class="unit-floor" data-floor="${esc(f)}" ${open} ontoggle="toggleFloor(this)">
+          <summary>${esc(floorLabel(f))}</summary>
+          <div class="units-grid">${byFloor.get(f).map(u=>unitTileHTML(project,u)).join('')}</div>
+        </details>`;
+      }).join('')
       : `<div class="empty-row" style="text-align:center;padding:28px;">لا توجد وحدات مضافة لهذا المشروع بعد${canEdit?' — اضغط «+ إضافة وحدة»':''}</div>`}
     </div>
 
@@ -3747,7 +3783,8 @@ function openUnitForm(projectId, unitId){
     <h3>${u ? 'الوحدة ' + esc(u.code) : 'إضافة وحدة'}</h3>
     ${u ? `<div class="modal-sub">المشروع: ${esc(proj?proj.name:'')} · الحالة: ${esc((UNIT_STATUS[u.status]||UNIT_STATUS.av).label)} · الفرق عن السعر الأصلي: ${diffTxt}</div>` : `<div class="modal-sub">المشروع: ${esc(proj?proj.name:'')}</div>`}
     <div class="form-grid">
-      <div class="field"><label>كود الوحدة*</label><input id="u_code" value="${esc(u?u.code:'')}" ${dis} placeholder="مثل -1B أو 1R"></div>
+      <div class="field"><label>كود الوحدة*</label><input id="u_code" value="${esc(u?u.code:'')}" ${dis} placeholder="مثل -1B أو 1R" oninput="autoFillFloor()"></div>
+      <div class="field"><label>الدور</label><input id="u_floor" value="${esc(u&&u.floor!=null?u.floor:'')}" ${dis} placeholder="يتعبّى تلقائياً من الكود" ${u?"data-touched='1'":""} oninput="this.dataset.touched='1'"></div>
       <div class="field"><label>الحالة</label><select id="u_status" ${dis}>
         ${Object.entries(UNIT_STATUS).map(([k,v])=>`<option value="${k}" ${u&&u.status===k?'selected':''}>${v.label}</option>`).join('')}
       </select></div>
@@ -3781,9 +3818,10 @@ async function saveUnitRow(projectId, unitId){
   if(price<0 || sale<0 || paid<0){ toast('الأسعار يجب ألا تكون سالبة'); return; }
   const status = document.getElementById('u_status').value;
   const buyer = document.getElementById('u_buyer').value.trim();
+  const floor = document.getElementById('u_floor').value.trim();
   const dup = DB.units.find(x=>x.project_id===projectId && String(x.code).toLowerCase()===code.toLowerCase() && x.id!==unitId);
   if(dup){ toast('توجد وحدة أخرى بنفس الكود في هذا المشروع'); return; }
-  const data = { project_id:projectId, code, area, rooms, price, sale, paid, buyer, status };
+  const data = { project_id:projectId, code, floor, area, rooms, price, sale, paid, buyer, status };
   if(unitId){
     const idx = DB.units.findIndex(x=>x.id===unitId);
     DB.units[idx] = {...DB.units[idx], ...data};
@@ -4225,6 +4263,7 @@ function printReportCard(id){
   // a collapsed <details> hides its content from the printer, so open the fold first
   const fold = card.closest('details.report-fold');
   if(fold) fold.open = true;
+  card.querySelectorAll('details').forEach(d=>{ d.open = true; }); // open any collapsed floor folds inside the target
   enterPrintMode('printing-report');
   card.classList.add('print-target');
   runPrint();

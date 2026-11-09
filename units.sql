@@ -15,6 +15,7 @@ create table if not exists public.units (
   id          text primary key,
   project_id  text not null references public.projects(id) on delete cascade,
   code        text not null,
+  floor       text,                              -- الدور (يتعبّى تلقائياً من الكود، قابل للتعديل)
   area        numeric(10,2) not null default 0,
   rooms       integer       not null default 0,
   price       numeric(14,2) not null default 0,  -- السعر مع العمولة
@@ -28,9 +29,10 @@ create table if not exists public.units (
 
 -- nullable on purpose: the client upserts every row with an identical key set and
 -- writes an explicit null for any column a row lacks, which a NOT NULL column rejects.
--- buyer and paid are the columns an older or freshly built row may omit.
+-- buyer, paid and floor are the columns an older or freshly built row may omit.
 alter table public.units add column if not exists paid numeric(14,2) default 0;
 alter table public.units add column if not exists buyer text;
+alter table public.units add column if not exists floor text;
 
 alter table public.units enable row level security;
 grant select, insert, update, delete on public.units to authenticated;
