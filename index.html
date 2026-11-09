@@ -362,6 +362,10 @@ tbody tr{transition: background .15s;}
   tbody tr:hover{background:rgba(181,80,46,0.045);}
 }
 .table-scroll{overflow-x:auto;border-radius: var(--radius-sm);}
+.table-scroll.can-pan{cursor:grab;}
+.table-scroll.is-panning{cursor:grabbing;scrollbar-width:none;}
+.table-scroll.is-panning::-webkit-scrollbar{display:none;}
+body.panning-x{user-select:none;-webkit-user-select:none;cursor:grabbing;}
 .empty-row td{text-align:center;color:var(--ink-soft);padding:28px;font-style:italic;}
 .pill{
   display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;
@@ -2121,6 +2125,58 @@ document.addEventListener('scroll', e=>{
 window.addEventListener('resize', ()=>{
   if(_openSearchableApi){ _openSearchableApi.close(); _openSearchableApi = null; }
 });
+
+// desktop drag-to-pan: grab anywhere on a wide table and drag sideways, like a
+// touch swipe on mobile, so you never have to reach for the scrollbar at the bottom
+function setupTableDragPan(d){
+  let active = null;
+  const pannable = el => !!el && el.scrollWidth > el.clientWidth + 1;
+  d.addEventListener('mouseover', e=>{
+    const el = e.target && e.target.closest ? e.target.closest('.table-scroll') : null;
+    if(!el) return;
+    if(pannable(el)) el.classList.add('can-pan'); else el.classList.remove('can-pan');
+  });
+  d.addEventListener('mousedown', e=>{
+    if(e.button !== 0 || active) return;
+    if(window.matchMedia && !window.matchMedia('(hover:hover)').matches) return;
+    const t = e.target;
+    if(!t || !t.closest) return;
+    if(t.closest('input, select, textarea, [contenteditable="true"]')) return;
+    const el = t.closest('.table-scroll');
+    if(!pannable(el)) return;
+    active = { el, startX: e.clientX, startLeft: el.scrollLeft, moved: false };
+  });
+  d.addEventListener('mousemove', e=>{
+    if(!active) return;
+    const dx = e.clientX - active.startX;
+    if(!active.moved && Math.abs(dx) > 4){
+      active.moved = true;
+      active.el.classList.add('is-panning');
+      if(d.body) d.body.classList.add('panning-x');
+    }
+    if(active.moved){
+      active.el.scrollLeft = active.startLeft - dx;
+      if(e.preventDefault) e.preventDefault();
+    }
+  });
+  function endPan(){
+    if(!active) return;
+    const el = active.el, moved = active.moved;
+    active = null;
+    el.classList.remove('is-panning');
+    if(d.body) d.body.classList.remove('panning-x');
+    if(moved){
+      // swallow the click that fires right after a drag so rows/buttons don't trigger
+      const cleanup = ()=>{ d.removeEventListener('click', blocker, true); clearTimeout(timer); };
+      const blocker = ev => { if(ev.stopPropagation) ev.stopPropagation(); if(ev.preventDefault) ev.preventDefault(); cleanup(); };
+      const timer = setTimeout(cleanup, 250);
+      d.addEventListener('click', blocker, true);
+    }
+  }
+  d.addEventListener('mouseup', endPan);
+  window.addEventListener('blur', endPan);
+}
+setupTableDragPan(document);
 
 function makeSearchable(sel, opts){
   if(!sel) return;
