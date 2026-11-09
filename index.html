@@ -366,6 +366,23 @@ tbody tr{transition: background .15s;}
 .table-scroll.is-panning{cursor:grabbing;scrollbar-width:none;}
 .table-scroll.is-panning::-webkit-scrollbar{display:none;}
 body.panning-x{user-select:none;-webkit-user-select:none;cursor:grabbing;}
+/* ---- apartment units tab (وحدات الشقق) ---- */
+.units-legend{display:flex;flex-wrap:wrap;align-items:center;gap:14px;color:var(--ink-soft);font-size:12px;margin:0 0 12px;}
+.units-legend .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-inline-end:6px;vertical-align:middle;}
+.units-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(122px,1fr));gap:10px;}
+.unit-tile{
+  font:inherit;color:inherit;text-align:start;cursor:pointer;width:100%;min-width:0;
+  background:var(--card);border:1px solid var(--border-soft);border-radius:var(--radius-sm);
+  border-inline-start:4px solid var(--c);padding:12px;
+  display:flex;flex-direction:column;gap:5px;
+}
+@media (hover:hover){ .unit-tile:hover{border-color:var(--brick);} }
+.unit-tile:focus-visible{outline:2px solid var(--brick);outline-offset:2px;}
+.unit-tile .u-code{font-size:17px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.15;}
+.unit-tile .u-area{color:var(--ink-soft);font-size:12px;}
+.unit-tile .u-buyer{font-size:11px;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.unit-tile .u-st{font-size:12px;font-weight:700;color:var(--c);}
+.units-total{display:flex;justify-content:space-between;align-items:center;gap:10px;font-weight:800;}
 .empty-row td{text-align:center;color:var(--ink-soft);padding:28px;font-style:italic;}
 .pill{
   display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;
@@ -1130,7 +1147,8 @@ const TABLE_MAP = {
   'projects': 'projects',
   'project_quantities': 'project_quantities',
   'purchase_orders': 'purchase_orders',
-  'project_contractors': 'project_contractors'
+  'project_contractors': 'project_contractors',
+  'units': 'units'
 };
 
 // what the server held the last time each table was read, so a save can send
@@ -1378,7 +1396,7 @@ const PRICING_METHODS = [
 /* =========================================================
    STATE + STORAGE
 ========================================================= */
-let DB = { materials:[], suppliers:[], prices:[], projects:[], project_quantities:{}, purchase_orders:[], project_contractors:[] };
+let DB = { materials:[], suppliers:[], prices:[], projects:[], project_quantities:{}, purchase_orders:[], project_contractors:[], units:[] };
 let ACTIVE_PROJECT_ID = null;
 let CURRENT_TAB = "dashboard";
 
@@ -1442,6 +1460,7 @@ async function persistAll(){
     saveKey('project_quantities', DB.project_quantities),
     saveKey('purchase_orders', DB.purchase_orders),
     saveKey('project_contractors', DB.project_contractors),
+    saveKey('units', DB.units),
   ]);
 }
 async function loadAll(){
@@ -1452,6 +1471,7 @@ async function loadAll(){
   DB.project_quantities = await loadKey('project_quantities', {});
   DB.purchase_orders = await loadKey('purchase_orders', []);
   DB.project_contractors = await loadKey('project_contractors', []);
+  DB.units = await loadKey('units', []);
   ACTIVE_PROJECT_ID = await loadKey('active_project_id', null);
   if(DB.projects.length && !DB.projects.find(p=>p.id===ACTIVE_PROJECT_ID)){
     ACTIVE_PROJECT_ID = DB.projects[0].id;
@@ -1466,9 +1486,9 @@ let CURRENT_USER_EMAIL = '';
 let ROLES_TABLE_MISSING = false;
 const ROLE_LABELS = {admin:'أدمن', owner:'مالك', engineer:'مهندس موقع', data_entry:'مدخل بيانات', pending:'في انتظار تحديد الدور'};
 const ROLE_TABS = {
-  admin: ['dashboard','materials','suppliers','prices','projects','map','costing','po','compare','search','reports'],
-  owner: ['dashboard','materials','suppliers','prices','projects','map','costing','po','compare','search','reports'],
-  data_entry: ['dashboard','materials','suppliers','prices','projects','map','costing','po','search'],
+  admin: ['dashboard','materials','suppliers','prices','projects','map','costing','units','po','compare','search','reports'],
+  owner: ['dashboard','materials','suppliers','prices','projects','map','costing','units','po','compare','search','reports'],
+  data_entry: ['dashboard','materials','suppliers','prices','projects','map','costing','units','po','search'],
   engineer: ['dashboard','materials','suppliers','prices','projects','map','costing','po','search','reports'],
   pending: ['dashboard'],
   // role could not be confirmed (roles table missing or the read failed) — no tab
@@ -1489,6 +1509,8 @@ const PERM_MATRIX = [
   ['كميات وتكلفة المشروع — إضافة وتعديل وحذف بنود','✔️','❌','✔️','❌'],
   ['المقاولون — مشاهدة','✔️','✔️','✔️','مشروعه'],
   ['المقاولون — إضافة وتعديل وحذف','✔️','❌','✔️','❌'],
+  ['وحدات الشقق — مشاهدة','✔️','✔️','✔️','❌'],
+  ['وحدات الشقق — إضافة وتعديل وحذف','✔️','❌','✔️','❌'],
   ['أوامر الشراء — مشاهدة','✔️','✔️','✔️','مشروعه'],
   ['أوامر الشراء — إضافة وتعديل وحذف','✔️','❌','✔️','مشروعه'],
   ['طباعة / تصدير أمر الشراء PDF','✔️','✔️','✔️','✔️'],
@@ -1670,6 +1692,7 @@ const TABS = [
   {id:'projects', label:'المشاريع'},
   {id:'map', label:'خريطة المشاريع'},
   {id:'costing', label:'كميات وتكلفة المشروع'},
+  {id:'units', label:'وحدات الشقق'},
   {id:'po', label:'أوامر الشراء'},
   {id:'compare', label:'مقارنة الموردين'},
   {id:'search', label:'البحث الشامل'},
@@ -1757,6 +1780,7 @@ function renderPanel(id){
   if(id==='projects') renderProjects();
   if(id==='map') renderMap();
   if(id==='costing') renderCosting();
+  if(id==='units') renderUnits();
   if(id==='po') renderPO();
   if(id==='compare') renderCompare();
   if(id==='search') renderSearch();
@@ -3088,12 +3112,13 @@ async function saveProject(id){
 }
 async function deleteProject(id){
   if(denyIf('delete_any')) return;
-  if(!(await askConfirm('حذف هذا المشروع وكل كمياته وأوامر الشراء والمقاولين المرتبطين به؟'))) return;
+  if(!(await askConfirm('حذف هذا المشروع وكل كمياته وأوامر الشراء والمقاولين ووحدات الشقق المرتبطين به؟'))) return;
   DB.projects = DB.projects.filter(x=>x.id!==id);
   delete DB.project_quantities[id];
   DB.purchase_orders = DB.purchase_orders.filter(po=>po.project_id!==id);
   DB.project_contractors = DB.project_contractors.filter(c=>c.project_id!==id);
-  await saveKey('project_quantities', DB.project_quantities); await saveKey('purchase_orders', DB.purchase_orders); await saveKey('project_contractors', DB.project_contractors); await saveKey('projects', DB.projects);
+  DB.units = DB.units.filter(u=>u.project_id!==id);
+  await saveKey('project_quantities', DB.project_quantities); await saveKey('purchase_orders', DB.purchase_orders); await saveKey('project_contractors', DB.project_contractors); await saveKey('units', DB.units); await saveKey('projects', DB.projects);
   if(ACTIVE_PROJECT_ID===id){ ACTIVE_PROJECT_ID = DB.projects.length? DB.projects[0].id : null; await saveKey('active_project_id', ACTIVE_PROJECT_ID); }
   toast('تم الحذف'); renderProjectsTable(); renderProjectSelector();
 }
@@ -3614,6 +3639,217 @@ async function deleteContractorRow(projectId, rowId){
   DB.project_contractors = DB.project_contractors.filter(x=>!(x.id===rowId && x.project_id===projectId));
   await saveKey('project_contractors', DB.project_contractors);
   toast('تم الحذف'); renderCosting();
+}
+
+/* =========================================================
+   APARTMENT UNITS TAB (وحدات الشقق) — sales status per project
+========================================================= */
+const UNIT_STATUS = {
+  av:   {label:'متاح',         c:'var(--green)'},
+  pend: {label:'جاري الإفراغ', c:'var(--amber)'},
+  done: {label:'تم الإفراغ',   c:'var(--brick-dark)'},
+};
+// One-time seed for the RASA × SAREEM building, imported into the active project
+// on demand. paid default: a transferred unit is assumed settled, an in-progress
+// one is assumed unpaid — the user corrects «المُستلم» per unit after importing.
+const UNIT_SEED_RASA = [
+  {code:"-1B",area:148,rooms:3,price:675000,sale:675000,buyer:"",status:"av"},
+  {code:"-1C",area:148,rooms:3,price:665000,sale:665000,buyer:"",status:"av"},
+  {code:"-1D",area:148,rooms:3,price:675000,sale:670000,buyer:"Tamimi-Al Rawan",status:"done"},
+  {code:"-1A",area:148,rooms:3,price:645000,sale:645000,buyer:"shaibi Al Abdulaziz",status:"done"},
+  {code:"-1E",area:148,rooms:3,price:645000,sale:625000,buyer:"Jizani Lama",status:"done"},
+  {code:"-1F",area:118,rooms:2,price:565000,sale:555000,buyer:"Salama Al Turki",status:"done"},
+  {code:"-2B",area:148,rooms:3,price:685000,sale:685000,buyer:"Zahrani-Al Eyad",status:"done"},
+  {code:"-2C",area:148,rooms:3,price:675000,sale:685000,buyer:"Dekhel-Al Nour",status:"pend"},
+  {code:"-2D",area:148,rooms:3,price:685000,sale:685000,buyer:"Shahrani-Al Yasser",status:"done"},
+  {code:"-2A",area:148,rooms:3,price:655000,sale:645000,buyer:"Issa Al Jawharah",status:"done"},
+  {code:"-2E",area:148,rooms:3,price:655000,sale:645000,buyer:"Abdullah Latifah",status:"done"},
+  {code:"-2F",area:118,rooms:2,price:575000,sale:575000,buyer:"Saleh Tahani",status:"done"},
+  {code:"-3B",area:148,rooms:3,price:695000,sale:695000,buyer:"Ramlawi Khalid",status:"done"},
+  {code:"-3C",area:148,rooms:3,price:685000,sale:685000,buyer:"",status:"av"},
+  {code:"-3D",area:148,rooms:3,price:695000,sale:695000,buyer:"Dosari-Al Fahad",status:"done"},
+  {code:"-3A",area:148,rooms:3,price:665000,sale:665000,buyer:"Boodi Maha",status:"done"},
+  {code:"-3E",area:148,rooms:3,price:665000,sale:665000,buyer:"Batah-Al Mosaed",status:"pend"},
+  {code:"-3F",area:118,rooms:2,price:585000,sale:580000,buyer:"Idres Rashid-Al",status:"done"},
+  {code:"-4B",area:148,rooms:3,price:705000,sale:705000,buyer:"Baadi-Al Abdullah",status:"done"},
+  {code:"-4C",area:148,rooms:3,price:695000,sale:685000,buyer:"Jubairah Abdulrahman",status:"pend"},
+  {code:"-4D",area:148,rooms:3,price:705000,sale:705000,buyer:"Hazazi Abdullah",status:"done"},
+  {code:"-4A",area:148,rooms:3,price:675000,sale:685000,buyer:"Wadyan",status:"done"},
+  {code:"-4E",area:148,rooms:3,price:675000,sale:685000,buyer:"Shokri Abdullah",status:"done"},
+  {code:"-4F",area:118,rooms:2,price:595000,sale:595000,buyer:"Salem Al Faisal",status:"done"},
+  {code:"1R",area:160,rooms:3,price:965000,sale:965000,buyer:"",status:"av"},
+  {code:"2R",area:160,rooms:3,price:965000,sale:965000,buyer:"",status:"av"},
+  {code:"3R",area:130,rooms:3,price:820000,sale:820000,buyer:"",status:"av"},
+];
+function renderUnits(){
+  const el = document.getElementById('panel-units');
+  if(!el) return;
+  if(!DB.projects.length){
+    el.innerHTML = `<div class="card"><div class="empty-row" style="text-align:center;padding:30px;">أضف مشروعاً أولاً من تبويب "المشاريع" لعرض وحداته</div></div>`;
+    return;
+  }
+  const project = DB.projects.find(p=>p.id===ACTIVE_PROJECT_ID) || DB.projects[0];
+  ACTIVE_PROJECT_ID = project.id;
+  const canEdit = can('edit_projects');
+  const units = DB.units.filter(u=>u.project_id===project.id);
+  const sum = (arr,f)=>arr.reduce((s,u)=>s+(Number(f(u))||0),0);
+  const avail = units.filter(u=>u.status==='av');
+  const sold  = units.filter(u=>u.status!=='av');
+  const doneN = units.filter(u=>u.status==='done').length;
+  const pendN = units.filter(u=>u.status==='pend').length;
+  const availValue  = sum(avail, u=>u.sale);
+  const soldValue   = sum(sold, u=>u.sale);
+  const receivedTot = sum(sold, u=>u.paid);
+  const outstanding = sum(sold, u=> (Number(u.sale)||0) - (Number(u.paid)||0));
+  const finalTot    = sum(units, u=>u.sale);
+  const existingCodes = new Set(units.map(u=>String(u.code).toLowerCase()));
+  const seedMissing = UNIT_SEED_RASA.filter(s=>!existingCodes.has(String(s.code).toLowerCase())).length;
+
+  el.innerHTML = `
+    <div class="section-title">
+      <div><h2>وحدات الشقق</h2><div class="desc">المشروع النشط: <b>${esc(project.name)}</b> — اختر المشروع من أعلى الصفحة لتبديله</div></div>
+      <div class="no-print" style="display:flex;gap:8px;flex-wrap:wrap;">
+        ${canEdit?`<button class="btn" onclick="openUnitForm('${project.id}')">+ إضافة وحدة</button>`:''}
+        ${canEdit && seedMissing?`<button class="btn secondary" onclick="importRasaUnits('${project.id}')" title="استيراد وحدات عمارة RASA الجاهزة">استيراد وحدات RASA (${seedMissing})</button>`:''}
+        <button class="btn ghost" onclick="printReportCard('panel-units')">${icon('print')} طباعة</button>
+      </div>
+    </div>
+
+    <div class="kpis">
+      <div class="kpi"><div class="n">${units.length}</div><div class="l">إجمالي الوحدات</div></div>
+      <div class="kpi"><div class="n">${doneN}</div><div class="l">تم الإفراغ</div></div>
+      <div class="kpi"><div class="n">${pendN}</div><div class="l">جاري الإفراغ</div></div>
+      <div class="kpi"><div class="n">${avail.length}</div><div class="l">متاح للبيع</div></div>
+      <div class="kpi"><div class="n mono">${fmt(soldValue)}</div><div class="l">قيمة المباع (ر.س)</div></div>
+      <div class="kpi"><div class="n mono">${fmt(availValue)}</div><div class="l">قيمة المتاح (ر.س)</div></div>
+    </div>
+
+    <div class="card">
+      <div class="units-legend no-print">
+        <span><span class="dot" style="background:var(--green)"></span>متاح</span>
+        <span><span class="dot" style="background:var(--amber)"></span>جاري الإفراغ</span>
+        <span><span class="dot" style="background:var(--brick-dark)"></span>تم الإفراغ</span>
+        <div class="spacer"></div>
+        <span class="small-muted">اضغط على أي وحدة لعرض تفاصيلها${canEdit?' وتعديلها':''}</span>
+      </div>
+      ${units.length? `<div class="units-grid">${units.map(u=>{
+        const s = UNIT_STATUS[u.status] || UNIT_STATUS.av;
+        return `<button type="button" class="unit-tile" style="--c:${s.c}" onclick="openUnitForm('${project.id}','${u.id}')">
+          <span class="u-code">${esc(u.code)}</span>
+          <span class="u-area">${fmt(u.area)} م² · ${Number(u.rooms)||0} غرف</span>
+          ${u.buyer?`<span class="u-buyer" title="${esc(u.buyer)}">${esc(u.buyer)}</span>`:''}
+          <span class="u-st">${s.label}</span>
+        </button>`;
+      }).join('')}</div>`
+      : `<div class="empty-row" style="text-align:center;padding:28px;">لا توجد وحدات مضافة لهذا المشروع بعد${canEdit?' — اضغط «+ إضافة وحدة» أو «استيراد وحدات RASA»':''}</div>`}
+    </div>
+
+    ${units.length?`<div class="card">
+      <h3 style="margin:0 0 10px;font-size:15px;color:var(--brick-dark);">الإجماليات</h3>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <div class="units-total"><span>متبقي لم يباع (قيمة المتاح)</span><span class="mono">${fmt(availValue)}</span></div>
+        <div class="units-total"><span>إجمالي المُستلم من المباع</span><span class="mono" style="color:var(--green);">${fmt(receivedTot)}</span></div>
+        <div class="units-total"><span>متبقي لم يُستلم</span><span class="mono" style="color:${outstanding>0?'var(--brick-dark)':'var(--green)'};">${fmt(outstanding)}</span></div>
+        <div class="divider"></div>
+        <div class="units-total"><span>إجمالي المتبقي (لم يُباع + لم يُستلم)</span><span class="mono">${fmt(availValue+outstanding)}</span></div>
+        <div class="units-total"><span>إجمالي الأسعار النهائية (كل الوحدات)</span><span class="mono">${fmt(finalTot)}</span></div>
+      </div>
+    </div>`:''}
+  `;
+}
+function unitRemainderPreview(){
+  const el = document.getElementById('u_remainder');
+  if(!el) return;
+  const area = Number(document.getElementById('u_area').value)||0;
+  const sale = Number(document.getElementById('u_sale').value)||0;
+  const paid = Number(document.getElementById('u_paid').value)||0;
+  const ppm = area>0 ? Math.round(sale/area) : null;
+  const rest = sale - paid;
+  const parts = [];
+  if(ppm!==null) parts.push(`سعر المتر (البيع): ${fmt(ppm)} ر.س`);
+  if(sale || paid) parts.push(rest<0 ? `المتبقي: ${fmt(rest)} — المُستلم أكبر من سعر البيع` : `المتبقي لم يُستلم: ${fmt(rest)}`);
+  el.textContent = parts.join('   ·   ');
+  el.style.color = rest<0 ? 'var(--brick-dark)' : 'var(--ink-soft)';
+}
+function openUnitForm(projectId, unitId){
+  const u = unitId ? DB.units.find(x=>x.id===unitId && x.project_id===projectId) : null;
+  const canEdit = can('edit_projects');
+  const dis = canEdit ? '' : 'disabled';
+  const proj = DB.projects.find(p=>p.id===projectId);
+  let diffTxt = '';
+  if(u){ const d = (Number(u.sale)||0) - (Number(u.price)||0); diffTxt = d===0 ? 'بدون تغيير' : (d<0 ? `خصم ${fmt(-d)} ر.س` : `زيادة ${fmt(d)} ر.س`); }
+  openModal(`
+    <h3>${u ? 'الوحدة ' + esc(u.code) : 'إضافة وحدة'}</h3>
+    ${u ? `<div class="modal-sub">المشروع: ${esc(proj?proj.name:'')} · الحالة: ${esc((UNIT_STATUS[u.status]||UNIT_STATUS.av).label)} · الفرق عن السعر الأصلي: ${diffTxt}</div>` : `<div class="modal-sub">المشروع: ${esc(proj?proj.name:'')}</div>`}
+    <div class="form-grid">
+      <div class="field"><label>كود الوحدة*</label><input id="u_code" value="${esc(u?u.code:'')}" ${dis} placeholder="مثل -1B أو 1R"></div>
+      <div class="field"><label>الحالة</label><select id="u_status" ${dis}>
+        ${Object.entries(UNIT_STATUS).map(([k,v])=>`<option value="${k}" ${u&&u.status===k?'selected':''}>${v.label}</option>`).join('')}
+      </select></div>
+      <div class="field"><label>المساحة (م²)</label><input id="u_area" type="number" min="0" step="any" value="${esc(u&&u.area!=null?u.area:'')}" ${dis} oninput="unitRemainderPreview()"></div>
+      <div class="field"><label>عدد الغرف</label><input id="u_rooms" type="number" min="0" step="1" value="${esc(u&&u.rooms!=null?u.rooms:'')}" ${dis}></div>
+      <div class="field"><label>السعر مع العمولة (ر.س)</label><input id="u_price" type="number" min="0" step="any" value="${esc(u&&u.price!=null?u.price:'')}" ${dis}></div>
+      <div class="field"><label>سعر البيع (ر.س)</label><input id="u_sale" type="number" min="0" step="any" value="${esc(u&&u.sale!=null?u.sale:'')}" ${dis} oninput="unitRemainderPreview()"></div>
+      <div class="field"><label>المُستلم (ر.س)</label><input id="u_paid" type="number" min="0" step="any" value="${esc(u&&u.paid!=null?u.paid:'')}" ${dis} oninput="unitRemainderPreview()"></div>
+      <div class="field full"><label>المشتري</label><input id="u_buyer" value="${esc(u?u.buyer||'':'')}" ${dis} placeholder="لم يُباع بعد"></div>
+      <div class="field full"><div class="modal-sub" id="u_remainder" style="margin:0;"></div></div>
+    </div>
+    <div class="modal-actions">
+      ${canEdit?`<button class="btn" onclick="saveUnitRow('${projectId}','${u?u.id:''}')">${u?'حفظ التعديلات':'إضافة الوحدة'}</button>`:''}
+      ${canEdit && u?`<button class="btn danger" onclick="deleteUnitRow('${projectId}','${u.id}')">${icon('trash')} حذف</button>`:''}
+      <button class="btn ghost" onclick="requestCloseModal()">${canEdit?'إلغاء':'إغلاق'}</button>
+    </div>
+  `, true);
+  unitRemainderPreview();
+}
+async function saveUnitRow(projectId, unitId){
+  if(denyIf('edit_projects')) return;
+  const code = document.getElementById('u_code').value.trim();
+  if(!code){ toast('أدخل كود الوحدة'); return; }
+  const area = Number(document.getElementById('u_area').value)||0;
+  const rooms = Number(document.getElementById('u_rooms').value)||0;
+  const price = Number(document.getElementById('u_price').value)||0;
+  const sale = Number(document.getElementById('u_sale').value)||0;
+  const paid = Number(document.getElementById('u_paid').value)||0;
+  if(!(area>0)){ toast('المساحة يجب أن تكون أكبر من صفر'); return; }
+  if(!Number.isInteger(rooms) || rooms<0){ toast('عدد الغرف يجب أن يكون رقماً صحيحاً موجباً'); return; }
+  if(price<0 || sale<0 || paid<0){ toast('الأسعار يجب ألا تكون سالبة'); return; }
+  const status = document.getElementById('u_status').value;
+  const buyer = document.getElementById('u_buyer').value.trim();
+  const dup = DB.units.find(x=>x.project_id===projectId && String(x.code).toLowerCase()===code.toLowerCase() && x.id!==unitId);
+  if(dup){ toast('توجد وحدة أخرى بنفس الكود في هذا المشروع'); return; }
+  const data = { project_id:projectId, code, area, rooms, price, sale, paid, buyer, status };
+  if(unitId){
+    const idx = DB.units.findIndex(x=>x.id===unitId);
+    DB.units[idx] = {...DB.units[idx], ...data};
+  } else {
+    DB.units.push({id:uid('UN'), ...data});
+  }
+  await saveKey('units', DB.units);
+  closeModal(); toast('تم الحفظ'); renderUnits();
+}
+async function deleteUnitRow(projectId, unitId){
+  if(denyIf('edit_projects')) return;
+  closeModal(); // askConfirm opens its own modal, so close this one first
+  if(!(await askConfirm('حذف هذه الوحدة؟', 'تأكيد الحذف', 'نعم، احذف'))){ renderUnits(); return; }
+  DB.units = DB.units.filter(x=>!(x.id===unitId && x.project_id===projectId));
+  await saveKey('units', DB.units);
+  toast('تم الحذف'); renderUnits();
+}
+async function importRasaUnits(projectId){
+  if(denyIf('edit_projects')) return;
+  const existingCodes = new Set(DB.units.filter(u=>u.project_id===projectId).map(u=>String(u.code).toLowerCase()));
+  const toAdd = UNIT_SEED_RASA.filter(s=>!existingCodes.has(String(s.code).toLowerCase()));
+  if(!toAdd.length){ toast('كل الوحدات الجاهزة موجودة بالفعل في هذا المشروع'); return; }
+  const ok = await askConfirm(
+    `سيتم استيراد ${toAdd.length} وحدة جاهزة (عمارة RASA) إلى المشروع الحالي.<br>الوحدات التي «تم إفراغها» ستُعتبر مدفوعة بالكامل، و«جاري الإفراغ» لم يُستلم منها شيء — يمكنك تعديل «المُستلم» لكل وحدة بعد الاستيراد.<br>الوحدات الموجودة مسبقاً (بنفس الكود) لن تتكرر.`,
+    'استيراد الوحدات الجاهزة', 'نعم، استورد');
+  if(!ok) return;
+  toAdd.forEach(s=>{
+    DB.units.push({ id:uid('UN'), project_id:projectId, code:s.code, area:s.area, rooms:s.rooms, price:s.price, sale:s.sale, paid: s.status==='done' ? s.sale : 0, buyer:s.buyer||'', status:s.status });
+  });
+  await saveKey('units', DB.units);
+  toast(`تم استيراد ${toAdd.length} وحدة`); renderUnits();
 }
 
 /* =========================================================
@@ -4240,14 +4476,15 @@ function jumpToCompare(matId){
 async function exportBackup(){
   if(denyIf('export')) return;
   try{
-    const [materials, suppliers, prices, projects, project_quantities, purchase_orders, project_contractors] = await Promise.all([
+    const [materials, suppliers, prices, projects, project_quantities, purchase_orders, project_contractors, units] = await Promise.all([
       supabaseFetch('materials?select=*'),
       supabaseFetch('suppliers?select=*'),
       supabaseFetch('prices?select=*'),
       supabaseFetch('projects?select=*'),
       supabaseFetch('project_quantities?select=*'),
       supabaseFetch('purchase_orders?select=*'),
-      supabaseFetch('project_contractors?select=*')
+      supabaseFetch('project_contractors?select=*'),
+      supabaseFetch('units?select=*')
     ]);
     // Strip project_id from quantities for portability
     const quantitiesGrouped = {};
@@ -4263,6 +4500,7 @@ async function exportBackup(){
       project_quantities: quantitiesGrouped,
       purchase_orders,
       project_contractors,
+      units,
       active_project_id: ACTIVE_PROJECT_ID
     };
     const blob = new Blob([JSON.stringify(payload,null,2)], {type:'application/json;charset=utf-8;'});
@@ -4296,6 +4534,7 @@ async function triggerRestore(){
       const projects = Array.isArray(data.projects) ? data.projects : [];
       const orders = Array.isArray(data.purchase_orders) ? data.purchase_orders : [];
       const contractorRows = Array.isArray(data.project_contractors) ? data.project_contractors : [];
+      const unitRows = Array.isArray(data.units) ? data.units : [];
       let qtyRows = [];
       if (data.project_quantities && typeof data.project_quantities === 'object' && !Array.isArray(data.project_quantities)) {
         for (const [pid, items] of Object.entries(data.project_quantities)) {
@@ -4306,7 +4545,7 @@ async function triggerRestore(){
       } else if (Array.isArray(data.project_quantities)) {
         qtyRows = data.project_quantities;
       }
-      const ok = await askConfirm(`سيتم استبدال كل البيانات الحالية ببيانات النسخة الاحتياطية:<br>${data.materials.length} مادة، ${data.suppliers.length} مورد، ${prices.length} سعر، ${projects.length} مشروع، ${qtyRows.length} بند كميات، ${orders.length} أمر شراء، ${contractorRows.length} مقاول.<br>هل تريد المتابعة؟`, 'استعادة نسخة احتياطية', 'نعم، استعد');
+      const ok = await askConfirm(`سيتم استبدال كل البيانات الحالية ببيانات النسخة الاحتياطية:<br>${data.materials.length} مادة، ${data.suppliers.length} مورد، ${prices.length} سعر، ${projects.length} مشروع، ${qtyRows.length} بند كميات، ${orders.length} أمر شراء، ${contractorRows.length} مقاول، ${unitRows.length} وحدة.<br>هل تريد المتابعة؟`, 'استعادة نسخة احتياطية', 'نعم، استعد');
       if(!ok) return;
 
       const wipeTable = async (table) => {
@@ -4333,6 +4572,7 @@ async function triggerRestore(){
       await wipeTable('project_quantities');
       await wipeTable('purchase_orders');
       await wipeTable('project_contractors');
+      await wipeTable('units');
       await wipeTable('prices');
       await wipeTable('projects');
       await wipeTable('suppliers');
@@ -4344,6 +4584,7 @@ async function triggerRestore(){
       await insertTable('project_quantities', qtyRows);
       await insertTable('purchase_orders', orders);
       await insertTable('project_contractors', contractorRows);
+      await insertTable('units', unitRows);
 
       await loadAll();
       if (data.active_project_id && DB.projects.some(p=>p.id===data.active_project_id)) {
