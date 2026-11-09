@@ -1,6 +1,6 @@
 -- =============================================================
--- SAREEM cost DB — apartment units (وحدات الشقق)
--- Adds the "وحدات الشقق" tab: sales status of every unit in a project.
+-- SAREEM cost DB — apartment units (الوحدات السكنية)
+-- Adds the "الوحدات السكنية" tab: sales status of every unit in a project.
 -- Run in the Supabase SQL editor as postgres. Re-runnable.
 --
 -- DEPENDENCY: user-roles.sql must already be applied — this script

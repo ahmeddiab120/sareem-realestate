@@ -366,7 +366,7 @@ tbody tr{transition: background .15s;}
 .table-scroll.is-panning{cursor:grabbing;scrollbar-width:none;}
 .table-scroll.is-panning::-webkit-scrollbar{display:none;}
 body.panning-x{user-select:none;-webkit-user-select:none;cursor:grabbing;}
-/* ---- apartment units tab (وحدات الشقق) ---- */
+/* ---- apartment units tab (الوحدات السكنية) ---- */
 .units-legend{display:flex;flex-wrap:wrap;align-items:center;gap:14px;color:var(--ink-soft);font-size:12px;margin:0 0 12px;}
 .units-legend .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-inline-end:6px;vertical-align:middle;}
 .units-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(122px,1fr));gap:10px;}
@@ -1509,8 +1509,8 @@ const PERM_MATRIX = [
   ['كميات وتكلفة المشروع — إضافة وتعديل وحذف بنود','✔️','❌','✔️','❌'],
   ['المقاولون — مشاهدة','✔️','✔️','✔️','مشروعه'],
   ['المقاولون — إضافة وتعديل وحذف','✔️','❌','✔️','❌'],
-  ['وحدات الشقق — مشاهدة','✔️','✔️','✔️','❌'],
-  ['وحدات الشقق — إضافة وتعديل وحذف','✔️','❌','✔️','❌'],
+  ['الوحدات السكنية — مشاهدة','✔️','✔️','✔️','❌'],
+  ['الوحدات السكنية — إضافة وتعديل وحذف','✔️','❌','✔️','❌'],
   ['أوامر الشراء — مشاهدة','✔️','✔️','✔️','مشروعه'],
   ['أوامر الشراء — إضافة وتعديل وحذف','✔️','❌','✔️','مشروعه'],
   ['طباعة / تصدير أمر الشراء PDF','✔️','✔️','✔️','✔️'],
@@ -1692,11 +1692,11 @@ const TABS = [
   {id:'projects', label:'المشاريع'},
   {id:'map', label:'خريطة المشاريع'},
   {id:'costing', label:'كميات وتكلفة المشروع'},
-  {id:'units', label:'وحدات الشقق'},
   {id:'po', label:'أوامر الشراء'},
   {id:'compare', label:'مقارنة الموردين'},
   {id:'search', label:'البحث الشامل'},
   {id:'reports', label:'التقارير'},
+  {id:'units', label:'الوحدات السكنية'},
 ];
 
 function buildShell(){
@@ -3112,7 +3112,7 @@ async function saveProject(id){
 }
 async function deleteProject(id){
   if(denyIf('delete_any')) return;
-  if(!(await askConfirm('حذف هذا المشروع وكل كمياته وأوامر الشراء والمقاولين ووحدات الشقق المرتبطين به؟'))) return;
+  if(!(await askConfirm('حذف هذا المشروع وكل كمياته وأوامر الشراء والمقاولين والوحدات السكنية المرتبطين به؟'))) return;
   DB.projects = DB.projects.filter(x=>x.id!==id);
   delete DB.project_quantities[id];
   DB.purchase_orders = DB.purchase_orders.filter(po=>po.project_id!==id);
@@ -3642,7 +3642,7 @@ async function deleteContractorRow(projectId, rowId){
 }
 
 /* =========================================================
-   APARTMENT UNITS TAB (وحدات الشقق) — sales status per project
+   APARTMENT UNITS TAB (الوحدات السكنية) — sales status per project
 ========================================================= */
 const UNIT_STATUS = {
   av:   {label:'متاح',         c:'var(--green)'},
@@ -3707,7 +3707,7 @@ function renderUnits(){
 
   el.innerHTML = `
     <div class="section-title">
-      <div><h2>وحدات الشقق</h2><div class="desc">المشروع النشط: <b>${esc(project.name)}</b> — اختر المشروع من أعلى الصفحة لتبديله</div></div>
+      <div><h2>الوحدات السكنية</h2><div class="desc">المشروع النشط: <b>${esc(project.name)}</b> — اختر المشروع من أعلى الصفحة لتبديله</div></div>
       <div class="no-print" style="display:flex;gap:8px;flex-wrap:wrap;">
         ${canEdit?`<button class="btn" onclick="openUnitForm('${project.id}')">+ إضافة وحدة</button>`:''}
         ${canEdit && seedMissing?`<button class="btn secondary" onclick="importRasaUnits('${project.id}')" title="استيراد وحدات عمارة RASA الجاهزة">استيراد وحدات RASA (${seedMissing})</button>`:''}
