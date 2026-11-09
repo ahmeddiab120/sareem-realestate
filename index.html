@@ -3663,7 +3663,14 @@ const UNIT_STATUS = {
 let collapsedFloors = new Set();
 function toggleFloor(el){ const f = el.dataset.floor==null?'':el.dataset.floor; if(el.open) collapsedFloors.delete(f); else collapsedFloors.add(f); }
 function floorFromCode(code){ const m = String(code==null?'':code).trim().match(/^(-?\d+)/); return m?m[1]:''; }
-function autoFillFloor(){ const f=document.getElementById('u_floor'), c=document.getElementById('u_code'); if(!f||!c||f.disabled||f.dataset.touched==='1') return; f.value=floorFromCode(c.value); }
+function autoFillFloor(){
+  const f=document.getElementById('u_floor'), c=document.getElementById('u_code');
+  if(!f||!c||f.disabled||f.dataset.touched==='1') return;
+  const want = floorFromCode(c.value);
+  const n = numOrNull(want);
+  if(n===null || n<FLOOR_MIN || n>FLOOR_MAX) return; // not an offered option: leave the pick alone
+  f.value = want;
+}
 function numOrNull(f){ if(f===''||f==null) return null; const n=Number(f); return isFinite(n)?n:null; }
 // basements first from -1 downward, then above-ground ascending, then text floors, empty last
 function compareFloors(a,b){
@@ -3673,7 +3680,28 @@ function compareFloors(a,b){
   const ae=(a===''||a==null), be=(b===''||b==null); if(ae&&be) return 0; if(ae) return 1; if(be) return -1;
   return String(a).localeCompare(String(b),'ar');
 }
-function floorLabel(f){ if(f===''||f==null) return 'بدون دور'; return numOrNull(f)!==null ? 'الدور '+f : String(f); }
+// floors offered in the unit form: basements, ground, then الأول..الخامس عشر
+const FLOOR_MIN = -4, FLOOR_MAX = 15;
+const FLOOR_ORDINAL = ['','الأول','الثاني','الثالث','الرابع','الخامس','السادس','السابع','الثامن','التاسع','العاشر','الحادي عشر','الثاني عشر','الثالث عشر','الرابع عشر','الخامس عشر'];
+function floorLabel(f){
+  if(f===''||f==null) return 'بدون دور';
+  const n = numOrNull(f);
+  if(n===null) return String(f);
+  if(n===0) return 'الدور الأرضي';
+  if(n>0) return 'الدور ' + (FLOOR_ORDINAL[n] || n);
+  const a = Math.abs(n);
+  return a<=4 ? 'القبو ' + FLOOR_ORDINAL[a] : 'قبو ' + a;
+}
+// dropdown order matches the on-page order (compareFloors), so the list reads top-to-bottom
+function floorOptions(current){
+  const cur = current==null ? '' : String(current).trim();
+  const vals = [];
+  for(let n=FLOOR_MIN; n<=FLOOR_MAX; n++) vals.push(String(n));
+  if(cur!=='' && !vals.includes(cur)) vals.push(cur); // never drop a floor we don't offer
+  vals.sort(compareFloors);
+  return `<option value="" ${cur===''?'selected':''}>بدون دور</option>`
+    + vals.map(v=>`<option value="${esc(v)}" ${v===cur?'selected':''}>${esc(floorLabel(v))}</option>`).join('');
+}
 function unitTileHTML(project,u){
   const s = UNIT_STATUS[u.status] || UNIT_STATUS.av;
   return `<button type="button" class="unit-tile" style="--c:${s.c}" onclick="openUnitForm('${project.id}','${u.id}')">
@@ -3784,7 +3812,7 @@ function openUnitForm(projectId, unitId){
     ${u ? `<div class="modal-sub">المشروع: ${esc(proj?proj.name:'')} · الحالة: ${esc((UNIT_STATUS[u.status]||UNIT_STATUS.av).label)} · الفرق عن السعر الأصلي: ${diffTxt}</div>` : `<div class="modal-sub">المشروع: ${esc(proj?proj.name:'')}</div>`}
     <div class="form-grid">
       <div class="field"><label>كود الوحدة*</label><input id="u_code" value="${esc(u?u.code:'')}" ${dis} placeholder="مثل -1B أو 1R" oninput="autoFillFloor()"></div>
-      <div class="field"><label>الدور</label><input id="u_floor" value="${esc(u&&u.floor!=null?u.floor:'')}" ${dis} placeholder="يتعبّى تلقائياً من الكود" ${u?"data-touched='1'":""} oninput="this.dataset.touched='1'"></div>
+      <div class="field"><label>الدور</label><select id="u_floor" ${dis} ${u?"data-touched='1'":""} onchange="this.dataset.touched='1'">${floorOptions(u&&u.floor!=null?u.floor:'')}</select></div>
       <div class="field"><label>الحالة</label><select id="u_status" ${dis}>
         ${Object.entries(UNIT_STATUS).map(([k,v])=>`<option value="${k}" ${u&&u.status===k?'selected':''}>${v.label}</option>`).join('')}
       </select></div>
