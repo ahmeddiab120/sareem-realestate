@@ -382,6 +382,11 @@ body.panning-x{user-select:none;-webkit-user-select:none;cursor:grabbing;}
 .unit-tile .u-area{color:var(--ink-soft);font-size:12px;}
 .unit-tile .u-buyer{font-size:11px;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .unit-tile .u-st{font-size:12px;font-weight:700;color:var(--c);}
+/* drag-to-reorder: only the floors an editor owns get the grab affordance */
+.units-grid.reorderable .unit-tile{cursor:grab;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;}
+.unit-tile.dragging{opacity:.55;transform:scale(1.04);box-shadow:0 8px 20px rgba(0,0,0,.22);position:relative;z-index:5;pointer-events:none;cursor:grabbing;}
+body.unit-dragging{cursor:grabbing;}
+body.unit-dragging .units-grid{touch-action:none;}
 .units-total{display:flex;justify-content:space-between;align-items:center;gap:10px;font-weight:800;}
 .unit-floor{border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--card);margin-bottom:12px;overflow:hidden;}
 .unit-floor:last-child{margin-bottom:0;}
@@ -3727,9 +3732,103 @@ function floorOptions(current){
   return `<option value="" ${cur===''?'selected':''}>بدون دور</option>`
     + vals.map(v=>`<option value="${esc(v)}" ${v===cur?'selected':''}>${esc(floorLabel(v))}</option>`).join('');
 }
+function unitFloorOf(u){ return (u.floor==null||String(u.floor).trim()==='') ? '' : String(u.floor).trim(); }
+// a unit lands at the end of its floor, so a new or moved unit never jumps the queue
+function nextFloorSort(projectId, floor, exceptId){
+  return DB.units
+    .filter(u=>u.project_id===projectId && u.id!==exceptId && unitFloorOf(u)===floor)
+    .reduce((m,u)=>Math.max(m, Number(u.sort)||0), 0) + 1;
+}
+// read the DOM back into the data: the tiles the user dropped are the new order
+async function commitFloorOrder(grid){
+  const ids = Array.from(grid.querySelectorAll('.unit-tile')).map(t=>t.dataset.uid);
+  let changed = false;
+  ids.forEach((id,i)=>{
+    const u = DB.units.find(x=>x.id===id);
+    if(u && (Number(u.sort)||0) !== i+1){ u.sort = i+1; changed = true; }
+  });
+  if(!changed) return;
+  await saveKey('units', DB.units);
+  toast('تم حفظ الترتيب');
+}
+// grab a tile and drop it where you want it — inside the same floor only.
+// a mouse drags straight away; a finger has to hold still first, otherwise the
+// page could never be scrolled by swiping over the units.
+function setupUnitDrag(d){
+  const HOLD_MS = 450, MOUSE_SLOP = 4, TOUCH_SLOP = 10;
+  let drag = null;
+  function activate(){
+    if(!drag || drag.armed) return;
+    drag.armed = true;
+    drag.tile.classList.add('dragging');
+    if(d.body) d.body.classList.add('unit-dragging');
+    if(navigator.vibrate){ try{ navigator.vibrate(12); }catch(_){} }
+    try{ drag.tile.setPointerCapture(drag.pointerId); }catch(_){}
+  }
+  function cancelHold(){ if(drag && drag.timer){ clearTimeout(drag.timer); drag.timer = null; } }
+  function moveTo(x,y){
+    const el = d.elementFromPoint ? d.elementFromPoint(x,y) : null;
+    const over = el && el.closest ? el.closest('.unit-tile') : null;
+    if(!over || over===drag.tile) return;
+    if(over.closest('.units-grid') !== drag.grid) return; // never leaves its own floor
+    const r = over.getBoundingClientRect();
+    const cy = r.top + r.height/2, cx = r.left + r.width/2;
+    // dir=rtl: DOM order runs right-to-left, so "before" means to the right of centre
+    const before = y < cy - 2 || (Math.abs(y-cy) <= r.height/2 && x > cx);
+    drag.grid.insertBefore(drag.tile, before ? over : over.nextSibling);
+  }
+  function endDrag(){
+    if(!drag) return;
+    const tile = drag.tile, grid = drag.grid, armed = drag.armed, moved = drag.moved, pid = drag.pointerId;
+    cancelHold(); drag = null;
+    if(!armed) return;
+    tile.classList.remove('dragging');
+    if(d.body) d.body.classList.remove('unit-dragging');
+    try{ tile.releasePointerCapture(pid); }catch(_){}
+    if(moved){
+      commitFloorOrder(grid);
+      // swallow the click that fires right after a drop so the tile doesn't open
+      const cleanup = ()=>{ d.removeEventListener('click', blocker, true); clearTimeout(timer); };
+      const blocker = ev => { if(ev.stopPropagation) ev.stopPropagation(); if(ev.preventDefault) ev.preventDefault(); cleanup(); };
+      const timer = setTimeout(cleanup, 250);
+      d.addEventListener('click', blocker, true);
+    }
+  }
+  d.addEventListener('pointerdown', e=>{
+    if(drag) return;
+    if(e.button!=null && e.button!==0) return;
+    const tile = e.target && e.target.closest ? e.target.closest('.unit-tile') : null;
+    if(!tile) return;
+    const grid = tile.closest('.units-grid');
+    if(!grid || !grid.classList.contains('reorderable')) return;
+    drag = { tile, grid, pointerId:e.pointerId, startX:e.clientX, startY:e.clientY, armed:false, moved:false, timer:null };
+    if(e.pointerType!=='mouse') drag.timer = setTimeout(activate, HOLD_MS);
+  });
+  d.addEventListener('pointermove', e=>{
+    if(!drag) return;
+    const dx = e.clientX-drag.startX, dy = e.clientY-drag.startY;
+    if(!drag.armed){
+      const slop = e.pointerType==='mouse' ? MOUSE_SLOP : TOUCH_SLOP;
+      if(Math.abs(dx) <= slop && Math.abs(dy) <= slop) return;
+      if(e.pointerType==='mouse'){ activate(); } else { cancelHold(); drag = null; return; } // a swipe, not a hold
+    }
+    drag.moved = true;
+    if(e.cancelable) e.preventDefault();
+    moveTo(e.clientX, e.clientY);
+  }, {passive:false});
+  // pointermove's preventDefault does not stop a touch scroll — this does
+  d.addEventListener('touchmove', e=>{ if(drag && drag.armed && e.cancelable) e.preventDefault(); }, {passive:false});
+  d.addEventListener('contextmenu', e=>{
+    if(drag && drag.armed && e.cancelable) e.preventDefault();
+  });
+  d.addEventListener('pointerup', endDrag);
+  d.addEventListener('pointercancel', endDrag);
+  window.addEventListener('blur', endDrag);
+}
+setupUnitDrag(document);
 function unitTileHTML(project,u){
   const s = UNIT_STATUS[u.status] || UNIT_STATUS.av;
-  return `<button type="button" class="unit-tile" style="--c:${s.c}" onclick="openUnitForm('${project.id}','${u.id}')">
+  return `<button type="button" class="unit-tile" data-uid="${esc(u.id)}" style="--c:${s.c}" onclick="openUnitForm('${project.id}','${u.id}')">
     <span class="u-code">${esc(u.code)}</span>
     <span class="u-area">${fmt(u.area)} م² · ${Number(u.rooms)||0} غرف</span>
     ${u.buyer?`<span class="u-buyer" title="${esc(u.buyer)}">${esc(u.buyer)}</span>`:''}
@@ -3757,9 +3856,10 @@ function renderUnits(){
   const receivedTot = sum(sold, u=>u.paid);
   const outstanding = sum(sold, u=> (Number(u.sale)||0) - (Number(u.paid)||0));
   const finalTot    = sum(units, u=>u.sale);
-  const floorOf = u => (u.floor==null||String(u.floor).trim()==='') ? '' : String(u.floor).trim();
   const byFloor = new Map();
-  units.forEach(u=>{ const f=floorOf(u); if(!byFloor.has(f)) byFloor.set(f,[]); byFloor.get(f).push(u); });
+  units.forEach(u=>{ const f=unitFloorOf(u); if(!byFloor.has(f)) byFloor.set(f,[]); byFloor.get(f).push(u); });
+  // stable sort: units the user has arranged keep their order, the rest stay in add order
+  byFloor.forEach(list=> list.sort((a,b)=>(Number(a.sort)||0)-(Number(b.sort)||0)));
   const floorKeys = Array.from(byFloor.keys()).sort(compareFloors);
 
   el.innerHTML = `
@@ -3786,13 +3886,13 @@ function renderUnits(){
         <span><span class="dot" style="background:var(--amber)"></span>جاري الإفراغ</span>
         <span><span class="dot" style="background:var(--brick-dark)"></span>تم الإفراغ</span>
         <div class="spacer"></div>
-        <span class="small-muted">اضغط على أي وحدة لعرض تفاصيلها${canEdit?' وتعديلها':''}</span>
+        <span class="small-muted">اضغط على أي وحدة لعرض تفاصيلها${canEdit?' وتعديلها · اسحبها لإعادة ترتيبها داخل الدور':''}</span>
       </div>
       ${units.length? floorKeys.map(f=>{
         const open = collapsedFloors.has(f) ? '' : 'open';
         return `<details class="unit-floor" data-floor="${esc(f)}" ${open} ontoggle="toggleFloor(this)">
           <summary>${esc(floorLabel(f))}</summary>
-          <div class="units-grid">${byFloor.get(f).map(u=>unitTileHTML(project,u)).join('')}</div>
+          <div class="units-grid${canEdit?' reorderable':''}">${byFloor.get(f).map(u=>unitTileHTML(project,u)).join('')}</div>
         </details>`;
       }).join('')
       : `<div class="empty-row" style="text-align:center;padding:28px;">لا توجد وحدات مضافة لهذا المشروع بعد${canEdit?' — اضغط «+ إضافة وحدة»':''}</div>`}
@@ -3874,7 +3974,11 @@ async function saveUnitRow(projectId, unitId){
   const floor = document.getElementById('u_floor').value.trim();
   const dup = DB.units.find(x=>x.project_id===projectId && String(x.code).toLowerCase()===code.toLowerCase() && x.id!==unitId);
   if(dup){ toast('توجد وحدة أخرى بنفس الكود في هذا المشروع'); return; }
-  const data = { project_id:projectId, code, floor, area, rooms, price, sale, paid, buyer, status };
+  // a unit keeps the place the user dragged it to, unless it moved to another floor
+  const prev = unitId ? DB.units.find(x=>x.id===unitId) : null;
+  const floorMoved = !prev || unitFloorOf(prev)!==floor;
+  const sort = floorMoved ? nextFloorSort(projectId, floor, unitId) : (Number(prev.sort)||0);
+  const data = { project_id:projectId, code, floor, sort, area, rooms, price, sale, paid, buyer, status };
   if(unitId){
     const idx = DB.units.findIndex(x=>x.id===unitId);
     DB.units[idx] = {...DB.units[idx], ...data};
