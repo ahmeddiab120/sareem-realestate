@@ -4404,27 +4404,6 @@ async function deletePO(id){
   await saveKey('purchase_orders', DB.purchase_orders);
   toast('تم الحذف'); renderPOTable();
 }
-// window.print() is ignored outright by iOS Safari and by iOS home-screen apps, but
-// it does work inside an installed app on Android and desktop — so never pre-block it.
-// Try, and explain only when beforeprint proves the dialog never came up.
-let printDialogSeen = false;
-window.addEventListener('beforeprint', ()=>{ printDialogSeen = true; });
-
-const IS_IOS = /iP(hone|ad|od)/.test(navigator.userAgent) ||
-  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-const IS_STANDALONE = navigator.standalone === true ||
-  (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
-
-function printHint(){
-  if(IS_IOS && IS_STANDALONE) return 'الطباعة لا تعمل داخل التطبيق — افتح الموقع في Safari ثم اطبع من زر المشاركة';
-  if(IS_IOS) return 'الطباعة لا تعمل من هنا — اضغط زر المشاركة ثم اختر «طباعة»';
-  return 'لم تفتح نافذة الطباعة — افتح قائمة المتصفح واختر «طباعة»';
-}
-function runPrint(){
-  printDialogSeen = false;
-  window.print();
-  setTimeout(()=>{ if(!printDialogSeen) toast(printHint()); }, 700);
-}
 // a print class left behind by an earlier attempt (iOS never fires afterprint) would
 // otherwise put two documents on the same sheet
 function enterPrintMode(mode){
@@ -4491,7 +4470,7 @@ function printPO(id){
     </div>
   `;
   enterPrintMode('printing-doc');
-  runPrint();
+  window.print();
 }
 
 // each report card prints on its own, so the sheet holds one report and its
@@ -4516,7 +4495,7 @@ function printReportCard(id){
   printOpenedFolds.forEach(d=>{ d.open = true; });
   enterPrintMode('printing-report');
   card.classList.add('print-target');
-  runPrint();
+  window.print();
 }
 window.addEventListener('afterprint', ()=>{
   restorePrintFolds();
