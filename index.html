@@ -382,6 +382,10 @@ body.panning-x{user-select:none;-webkit-user-select:none;cursor:grabbing;}
 .unit-tile .u-area{color:var(--ink-soft);font-size:12px;}
 .unit-tile .u-buyer{font-size:11px;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .unit-tile .u-st{font-size:12px;font-weight:700;color:var(--c);}
+/* the status and the hand-over badge share one line, and wrap rather than
+   overflow on a narrow phone tile */
+.unit-tile .u-row{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:4px 6px;min-width:0;}
+.unit-tile .u-delivered{font-size:10px;font-weight:800;color:var(--green);background:rgba(75,122,91,0.16);border-radius:999px;padding:2px 8px;white-space:nowrap;}
 /* drag-to-reorder: only the floors an editor owns get the grab affordance */
 .units-grid.reorderable .unit-tile{cursor:grab;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;}
 .unit-tile.dragging{opacity:.55;transform:scale(1.04);box-shadow:0 8px 20px rgba(0,0,0,.22);position:relative;z-index:5;pointer-events:none;cursor:grabbing;}
@@ -3832,7 +3836,7 @@ function unitTileHTML(project,u){
     <span class="u-code">${esc(u.code)}</span>
     <span class="u-area">${fmt(u.area)} م² · ${Number(u.rooms)||0} غرف</span>
     ${u.buyer?`<span class="u-buyer" title="${esc(u.buyer)}">${esc(u.buyer)}</span>`:''}
-    <span class="u-st">${s.label}</span>
+    <span class="u-row"><span class="u-st">${s.label}</span>${u.delivered?'<span class="u-delivered">تم التسليم</span>':''}</span>
   </button>`;
 }
 function renderUnits(){
