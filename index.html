@@ -3941,6 +3941,10 @@ function openUnitForm(projectId, unitId){
       <div class="field"><label>الحالة</label><select id="u_status" ${dis}>
         ${Object.entries(UNIT_STATUS).map(([k,v])=>`<option value="${k}" ${u&&u.status===k?'selected':''}>${v.label}</option>`).join('')}
       </select></div>
+      <div class="field"><label>هل تم التسليم للعميل؟</label><select id="u_delivered" ${dis}>
+        <option value="0" ${u&&u.delivered?'':'selected'}>لا</option>
+        <option value="1" ${u&&u.delivered?'selected':''}>نعم</option>
+      </select></div>
       <div class="field"><label>المساحة (م²)</label><input id="u_area" type="number" min="0" step="any" value="${esc(u&&u.area!=null?u.area:'')}" ${dis} oninput="unitRemainderPreview()"></div>
       <div class="field"><label>عدد الغرف</label><input id="u_rooms" type="number" min="0" step="1" value="${esc(u&&u.rooms!=null?u.rooms:'')}" ${dis}></div>
       <div class="field"><label>السعر مع العمولة (ر.س)</label><input id="u_price" type="number" min="0" step="any" value="${esc(u&&u.price!=null?u.price:'')}" ${dis}></div>
@@ -3970,6 +3974,7 @@ async function saveUnitRow(projectId, unitId){
   if(!Number.isInteger(rooms) || rooms<0){ toast('عدد الغرف يجب أن يكون رقماً صحيحاً موجباً'); return; }
   if(price<0 || sale<0 || paid<0){ toast('الأسعار يجب ألا تكون سالبة'); return; }
   const status = document.getElementById('u_status').value;
+  const delivered = document.getElementById('u_delivered').value === '1';
   const buyer = document.getElementById('u_buyer').value.trim();
   const floor = document.getElementById('u_floor').value.trim();
   const dup = DB.units.find(x=>x.project_id===projectId && String(x.code).toLowerCase()===code.toLowerCase() && x.id!==unitId);
@@ -3978,7 +3983,7 @@ async function saveUnitRow(projectId, unitId){
   const prev = unitId ? DB.units.find(x=>x.id===unitId) : null;
   const floorMoved = !prev || unitFloorOf(prev)!==floor;
   const sort = floorMoved ? nextFloorSort(projectId, floor, unitId) : (Number(prev.sort)||0);
-  const data = { project_id:projectId, code, floor, sort, area, rooms, price, sale, paid, buyer, status };
+  const data = { project_id:projectId, code, floor, sort, area, rooms, price, sale, paid, buyer, status, delivered };
   if(unitId){
     const idx = DB.units.findIndex(x=>x.id===unitId);
     DB.units[idx] = {...DB.units[idx], ...data};

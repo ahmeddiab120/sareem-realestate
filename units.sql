@@ -24,17 +24,19 @@ create table if not exists public.units (
   paid        numeric(14,2) not null default 0,  -- المُستلم من المشتري
   buyer       text,
   status      text not null default 'av' check (status in ('av','pend','done')),
+  delivered   boolean default false,             -- هل تم التسليم للعميل؟
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
 
 -- nullable on purpose: the client upserts every row with an identical key set and
 -- writes an explicit null for any column a row lacks, which a NOT NULL column rejects.
--- buyer, paid, floor and sort are the columns an older or freshly built row may omit.
+-- buyer, paid, floor, sort and delivered are the columns an older or freshly built row may omit.
 alter table public.units add column if not exists paid numeric(14,2) default 0;
 alter table public.units add column if not exists buyer text;
 alter table public.units add column if not exists floor text;
 alter table public.units add column if not exists sort integer;
+alter table public.units add column if not exists delivered boolean default false;
 
 alter table public.units enable row level security;
 grant select, insert, update, delete on public.units to authenticated;
