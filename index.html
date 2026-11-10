@@ -4041,11 +4041,11 @@ function openAddFloorDialog(projectId){
   const proj = DB.projects.find(p=>p.id===projectId);
   openModal(`
     <h3>إضافة دور</h3>
-    <div class="modal-sub">المشروع: ${esc(proj?proj.name:'')} — الوحدات هتتإنش بأكواد متسلسلة، وتقدر تفتح أي وحدة بعدها بالضغط عليها لتعبئة باقي بياناتها</div>
+    <div class="modal-sub">المشروع: ${esc(proj?proj.name:'')} — سيتم إنشاء الوحدات بأكواد متسلسلة، ويمكنك فتح أي وحدة لاحقاً بالضغط عليها لتعبئة باقي بياناتها</div>
     <div class="form-grid">
       <div class="field"><label>الدور</label><select id="uf_floor" onchange="updateFloorPreview('${projectId}')">${floorOptions('1')}</select></div>
       <div class="field"><label>عدد الوحدات</label><input id="uf_count" type="number" min="1" max="60" step="1" value="4" oninput="updateFloorPreview('${projectId}')"></div>
-      <div class="field full"><label>الأكواد اللي هتتإنش</label><div class="modal-sub" id="uf_preview" style="margin:0;"></div></div>
+      <div class="field full"><label>الأكواد التي سيتم إنشاؤها</label><div class="modal-sub" id="uf_preview" style="margin:0;"></div></div>
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="addFloorUnits('${projectId}')">إنشاء الوحدات</button>
@@ -4060,13 +4060,13 @@ function updateFloorPreview(projectId){
   const floor = document.getElementById('uf_floor').value;
   const count = Math.floor(Number(document.getElementById('uf_count').value)||0);
   const codes = count>0 ? planFloorCodes(projectId, floor, Math.min(count,60)) : [];
-  el.textContent = codes.length ? codes.slice(0,10).join('، ') + (codes.length>10 ? ` … (+${codes.length-10})` : '') : 'اكتب عدد الوحدات الأول';
+  el.textContent = codes.length ? codes.slice(0,10).join('، ') + (codes.length>10 ? ` … (+${codes.length-10})` : '') : 'أدخل عدد الوحدات أولاً';
 }
 async function addFloorUnits(projectId){
   if(denyIf('edit_projects')) return;
   const floor = document.getElementById('uf_floor').value.trim();
   const count = Math.floor(Number(document.getElementById('uf_count').value)||0);
-  if(!(count>=1) || count>60){ toast('عدد الوحدات لازم يكون بين 1 و 60'); return; }
+  if(!(count>=1) || count>60){ toast('عدد الوحدات يجب أن يكون بين 1 و 60'); return; }
   const codes = planFloorCodes(projectId, floor, count);
   if(codes.length<count){ toast('تعذر توليد أكواد كافية لهذا الدور'); return; }
   let sort = nextFloorSort(projectId, floor, null);
@@ -4074,7 +4074,9 @@ async function addFloorUnits(projectId){
     area:0, rooms:0, price:0, sale:0, paid:0, buyer:'', status:'av', delivered:false }));
   DB.units.push(...rows);
   await saveKey('units', DB.units);
-  closeModal(); toast(`تم إنشاء ${codes.length} وحدة في ${floorLabel(floor)}`); renderUnits();
+  const n = codes.length;
+  const noun = n===1 ? 'وحدة واحدة' : n===2 ? 'وحدتين' : n<=10 ? n+' وحدات' : n+' وحدة';
+  closeModal(); toast(`تم إنشاء ${noun} في ${floorLabel(floor)}`); renderUnits();
 }
 
 /* =========================================================
