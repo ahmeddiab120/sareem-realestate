@@ -3870,7 +3870,7 @@ function renderUnits(){
     <div class="section-title">
       <div><h2>الوحدات السكنية</h2><div class="desc">المشروع النشط: <b>${esc(project.name)}</b> — اختر المشروع من أعلى الصفحة لتبديله</div></div>
       <div class="no-print" style="display:flex;gap:8px;flex-wrap:wrap;">
-        ${canEdit?`<button class="btn" onclick="openUnitForm('${project.id}')">+ إضافة وحدة</button>`:''}
+        ${canEdit?`<button class="btn" onclick="openAddFloorDialog('${project.id}')">+ إضافة دور</button>`:''}
         <button class="btn ghost" onclick="printReportCard('panel-units')">${icon('print')} طباعة</button>
       </div>
     </div>
@@ -3899,7 +3899,7 @@ function renderUnits(){
           <div class="units-grid${canEdit?' reorderable':''}">${byFloor.get(f).map(u=>unitTileHTML(project,u)).join('')}</div>
         </details>`;
       }).join('')
-      : `<div class="empty-row" style="text-align:center;padding:28px;">لا توجد وحدات مضافة لهذا المشروع بعد${canEdit?' — اضغط «+ إضافة وحدة»':''}</div>`}
+      : `<div class="empty-row" style="text-align:center;padding:28px;">لا توجد وحدات مضافة لهذا المشروع بعد${canEdit?' — اضغط «+ إضافة دور»':''}</div>`}
     </div>
 
     ${units.length?`<div class="card">
@@ -4004,6 +4004,77 @@ async function deleteUnitRow(projectId, unitId){
   DB.units = DB.units.filter(x=>!(x.id===unitId && x.project_id===projectId));
   await saveKey('units', DB.units);
   toast('تم الحذف'); renderUnits();
+}
+// bulk floor creation: code = sequence letter + floor token + (|floor|*100 + sequence), e.g. A1-101, B2-202
+function seqLetter(i){
+  let s = '';
+  while(i>0){ s = String.fromCharCode(65 + (i-1)%26) + s; i = Math.floor((i-1)/26); }
+  return s;
+}
+function floorCodeParts(f){
+  const s = String(f==null?'':f).trim();
+  const a = annexNum(s);
+  if(a!==null) return {tok:a+'R', base:a*100};
+  const n = numOrNull(s);
+  if(n!==null) return {tok:String(n), base:Math.abs(n)*100};
+  return {tok:s, base:0};
+}
+function unitCodeFor(parts, seq){
+  const num = String(parts.base+seq).padStart(3,'0');
+  return (parts.tok==='' ? seqLetter(seq)+'-' : seqLetter(seq)+parts.tok+'-') + num;
+}
+// starts from the first sequence and skips codes the project already uses, so a clash regenerates instead of blocking
+function planFloorCodes(projectId, floor, count){
+  const taken = new Set(DB.units.filter(u=>u.project_id===projectId).map(u=>String(u.code).trim().toLowerCase()));
+  const parts = floorCodeParts(floor);
+  const floorKey = String(floor==null?'':floor).trim();
+  let seq = 1;
+  const codes = [];
+  while(codes.length<count && seq<=9999){
+    const code = unitCodeFor(parts, seq);
+    if(!taken.has(code.toLowerCase())){ taken.add(code.toLowerCase()); codes.push(code); }
+    seq++;
+  }
+  return codes;
+}
+function openAddFloorDialog(projectId){
+  const proj = DB.projects.find(p=>p.id===projectId);
+  openModal(`
+    <h3>إضافة دور</h3>
+    <div class="modal-sub">المشروع: ${esc(proj?proj.name:'')} — الوحدات هتتإنش بأكواد متسلسلة، وتقدر تفتح أي وحدة بعدها بالضغط عليها لتعبئة باقي بياناتها</div>
+    <div class="form-grid">
+      <div class="field"><label>الدور</label><select id="uf_floor" onchange="updateFloorPreview('${projectId}')">${floorOptions('1')}</select></div>
+      <div class="field"><label>عدد الوحدات</label><input id="uf_count" type="number" min="1" max="60" step="1" value="4" oninput="updateFloorPreview('${projectId}')"></div>
+      <div class="field full"><label>الأكواد اللي هتتإنش</label><div class="modal-sub" id="uf_preview" style="margin:0;"></div></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="addFloorUnits('${projectId}')">إنشاء الوحدات</button>
+      <button class="btn ghost" onclick="requestCloseModal()">إلغاء</button>
+    </div>
+  `, true);
+  updateFloorPreview(projectId);
+}
+function updateFloorPreview(projectId){
+  const el = document.getElementById('uf_preview');
+  if(!el) return;
+  const floor = document.getElementById('uf_floor').value;
+  const count = Math.floor(Number(document.getElementById('uf_count').value)||0);
+  const codes = count>0 ? planFloorCodes(projectId, floor, Math.min(count,60)) : [];
+  el.textContent = codes.length ? codes.slice(0,10).join('، ') + (codes.length>10 ? ` … (+${codes.length-10})` : '') : 'اكتب عدد الوحدات الأول';
+}
+async function addFloorUnits(projectId){
+  if(denyIf('edit_projects')) return;
+  const floor = document.getElementById('uf_floor').value.trim();
+  const count = Math.floor(Number(document.getElementById('uf_count').value)||0);
+  if(!(count>=1) || count>60){ toast('عدد الوحدات لازم يكون بين 1 و 60'); return; }
+  const codes = planFloorCodes(projectId, floor, count);
+  if(codes.length<count){ toast('تعذر توليد أكواد كافية لهذا الدور'); return; }
+  let sort = nextFloorSort(projectId, floor, null);
+  const rows = codes.map(code=>({ id:uid('UN'), project_id:projectId, code, floor, sort:sort++,
+    area:0, rooms:0, price:0, sale:0, paid:0, buyer:'', status:'av', delivered:false }));
+  DB.units.push(...rows);
+  await saveKey('units', DB.units);
+  closeModal(); toast(`تم إنشاء ${codes.length} وحدة في ${floorLabel(floor)}`); renderUnits();
 }
 
 /* =========================================================
