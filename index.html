@@ -2370,6 +2370,10 @@ function renderDashboard(){
   });
   const avgCostM2 = projWithArea.length ? projWithArea.reduce((a,b)=>a+b,0)/projWithArea.length : null;
 
+  // same definition as report #10, so the dashboard number and the report agree
+  const ovr = overrunRows({});
+  const ovrVar = ovr.reduce((s,r)=> s + r.variance, 0);
+
   // price alerts: material whose latest 2 records for same supplier changed significantly
   let alerts = [];
   DB.materials.forEach(m=>{
@@ -2422,6 +2426,7 @@ function renderDashboard(){
       <div class="kpi"><div class="n">${totalPrices}</div><div class="l">سجلات الأسعار</div></div>
       <div class="kpi"><div class="n mono">${fmt(totalValue)}</div><div class="l">إجمالي قيمة مواد المشاريع غير المكتملة (ر.س)${doneCount? `<div style="font-size:10px;font-weight:600;opacity:.8;margin-top:3px;">باستثناء المشاريع المكتملة (${doneCount}) بقيمة ${fmt(doneValue)}</div>`:''}</div></div>
       <div class="kpi"><div class="n mono">${avgCostM2? fmt(avgCostM2):'-'}</div><div class="l">متوسط تكلفة المتر² (ر.س)</div></div>
+      <div class="kpi"><div class="n mono" style="color:${ovrVar>0?'var(--red)':'var(--green)'}">${ovrVar>0?'+'+fmt(ovrVar):fmt(ovrVar)}</div><div class="l">زيادة المواد عن الدراسة (ر.س)${ovr.length? `<div style="font-size:10px;font-weight:600;opacity:.8;margin-top:3px;">${ovr.length} مادة — تفصيلها في تقرير 10</div>`:'<div style="font-size:10px;font-weight:600;opacity:.8;margin-top:3px;">لا توجد مواد تجاوزت الدراسة</div>'}</div></div>
     </div>
 
     <div class="two-col">
@@ -5004,6 +5009,53 @@ function renderReports(){
         <div id="unplannedWrap"></div>
       </div>
     </details>
+
+    <details class="report-fold">
+      <summary>10) تقرير المواد الزائدة عن الدراسة</summary>
+      <div class="card" id="card-overrun">
+        <h3 class="fold-title" style="margin-top:0;font-size:15px;color:var(--brick-dark);">10) تقرير المواد الزائدة عن الدراسة</h3>
+        <div class="small-muted no-print" style="margin-bottom:8px;">المواد التي تجاوزت تكلفتها المعتمدة في الدراسة فقط، مع فصل الزيادة إلى سببيها: <b>زيادة سعر</b> (اشتُريت بسعر أعلى من سعر الدراسة) و<b>زيادة كمية</b> (اشتُريت كمية أكبر من كمية الدراسة) — الأوامر الملغية لا تُحتسب ومتوسط سعر الشراء مرجّح بالكميات</div>
+        <div class="toolbar no-print">
+          <input type="text" id="ovrSearch" placeholder="بحث باسم المادة أو كودها..." oninput="renderOverrunReport()">
+          <select id="ovrProjFilter" onchange="renderOverrunReport()">
+            <option value="">كل المشاريع</option>
+            ${DB.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}
+          </select>
+          <select id="ovrCatFilter" onchange="renderOverrunReport()">
+            <option value="">كل الأقسام</option>
+            ${reportCats.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}
+          </select>
+          <select id="ovrMatFilter" onchange="renderOverrunReport()">
+            <option value="">كل المواد</option>
+            ${DB.materials.map(m=>`<option value="${m.id}">${esc(m.name_ar)}</option>`).join('')}
+          </select>
+          <select id="ovrSupplierFilter" onchange="renderOverrunReport()">
+            <option value="">كل الموردين</option>
+            ${DB.suppliers.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}
+          </select>
+          <input type="date" id="ovrFrom" title="من تاريخ" onchange="renderOverrunReport()">
+          <input type="date" id="ovrTo" title="إلى تاريخ" onchange="renderOverrunReport()">
+          <select id="ovrCauseFilter" onchange="renderOverrunReport()">
+            <option value="">كل أنواع الزيادة</option>
+            <option value="price">زيادة سعر فقط</option>
+            <option value="qty">زيادة كمية فقط</option>
+            <option value="both">سعر وكمية معاً</option>
+          </select>
+          <select id="ovrSort" onchange="renderOverrunReport()">
+            <option value="variance_desc">ترتيب: الأعلى زيادة مالية</option>
+            <option value="variancepct_desc">ترتيب: الأعلى نسبة زيادة</option>
+            <option value="pricevar_desc">ترتيب: الأعلى زيادة سعر</option>
+            <option value="qtyvar_desc">ترتيب: الأعلى زيادة كمية</option>
+            <option value="name_asc">ترتيب: اسم المادة</option>
+          </select>
+          <button class="btn sm ghost" onclick="clearOverrunFilters()">مسح الفلاتر</button>
+          <button class="btn sm secondary" onclick="printReportCard('card-overrun')">${icon('print')} طباعة</button>
+          <button class="btn sm ghost" onclick="exportCsv('overrunTable','تقرير_المواد_الزائدة_عن_الدراسة')">تصدير CSV</button>
+        </div>
+        <div id="overrunSummary"></div>
+        <div id="overrunWrap"></div>
+      </div>
+    </details>
   `;
   enhanceSearchableSelects(el);
   renderCostM2Report();
@@ -5013,6 +5065,7 @@ function renderReports(){
   renderPriceVarianceReport();
   renderCostPositionReport();
   renderUnplannedPurchasesReport();
+  renderOverrunReport();
 }
 function renderSupplierUsageReport(){
   const wrap = document.getElementById('supplierUsageWrap');
@@ -5715,6 +5768,120 @@ function openUnplannedDetail(pid, matId){
     </div>
     <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">إغلاق</button></div>
   `, true);
+}
+const OVERRUN_CAUSE = {
+  price:{label:'زيادة سعر', cls:'info'},
+  qty:{label:'زيادة كمية', cls:'off'},
+  both:{label:'سعر وكمية', cls:'off'},
+  other:{label:'زيادة', cls:'off'},
+};
+// the two causes are split so the parts add up exactly to the same projected
+// variance report #8 shows: extra units are costed at the study price, and
+// whatever is left over is what paying above the study price cost us.
+function overrunRows(opts){
+  return costPositionRows(opts)
+    .filter(r=> r.variance > 0)
+    .map(r=>{
+      const qtyVar = r.excessQty * r.studyPrice;
+      const priceVar = r.variance - qtyVar;
+      const cause = (priceVar>0.005 && qtyVar>0.005) ? 'both'
+        : priceVar>0.005 ? 'price'
+        : qtyVar>0.005 ? 'qty' : 'other';
+      return {...r, qtyVar, priceVar, cause, priceDiff: r.weightedAvg===null?null:r.weightedAvg-r.studyPrice};
+    });
+}
+function renderOverrunReport(){
+  const wrap = document.getElementById('overrunWrap');
+  if(!wrap) return;
+  const sumEl = document.getElementById('overrunSummary');
+  const val = id => { const e = document.getElementById(id); return e ? e.value : ''; };
+  const onlyId = val('ovrProjFilter');
+  const cat = val('ovrCatFilter');
+  const matId = val('ovrMatFilter');
+  const supId = val('ovrSupplierFilter');
+  const from = val('ovrFrom');
+  const to = val('ovrTo');
+  const causeF = val('ovrCauseFilter');
+  const sortF = val('ovrSort') || 'variance_desc';
+  const q = val('ovrSearch').trim().toLowerCase();
+
+  const all = overrunRows({onlyId, supplierId:supId, from, to});
+  const rows = all
+    .filter(r=> !cat || r.material.category===cat)
+    .filter(r=> !matId || r.material.id===matId)
+    .filter(r=> !q || String(r.material.name_ar||'').toLowerCase().includes(q)
+      || String(r.material.name_en||'').toLowerCase().includes(q)
+      || String(r.material.code||'').toLowerCase().includes(q))
+    .filter(r=> !causeF || r.cause===causeF);
+  if(sortF==='name_asc') rows.sort((a,b)=> String(a.material.name_ar||'').localeCompare(String(b.material.name_ar||'')));
+  else if(sortF==='variancepct_desc') rows.sort((a,b)=> (b.variancePct===null?-Infinity:b.variancePct)-(a.variancePct===null?-Infinity:a.variancePct));
+  else if(sortF==='pricevar_desc') rows.sort((a,b)=> b.priceVar-a.priceVar);
+  else if(sortF==='qtyvar_desc') rows.sort((a,b)=> b.qtyVar-a.qtyVar);
+  else rows.sort((a,b)=> b.variance-a.variance);
+
+  const T = rows.reduce((a,r)=>{ a.study+=r.studyCost; a.final+=r.finalExpected; a.vari+=r.variance; a.price+=r.priceVar; a.qty+=r.qtyVar; return a; }, {study:0,final:0,vari:0,price:0,qty:0});
+  const priceCount = rows.filter(r=> r.priceVar>0.005).length;
+  const qtyCount = rows.filter(r=> r.excessQty>0).length;
+  const varPct = T.study>0 ? T.vari/T.study*100 : null;
+  const projName = onlyId ? (DB.projects.find(p=>p.id===onlyId)||{}).name||'' : '';
+  const supName = supId ? (DB.suppliers.find(s=>s.id===supId)||{}).name||'' : '';
+  const matName = matId ? (DB.materials.find(m=>m.id===matId)||{}).name_ar||'' : '';
+  if(sumEl) sumEl.innerHTML = `
+    <div class="small-muted" style="margin:2px 0 10px;">النطاق: ${onlyId? esc(projName):'كل المشاريع'} | القسم: ${cat? esc(cat):'كل الأقسام'} | المادة: ${matId? esc(matName):'كل المواد'} | المورد: ${supId? esc(supName):'كل الموردين'} | الفترة: ${from? esc(from):'—'} إلى ${to? esc(to):'—'} | تاريخ التقرير: ${todayStr()} | عدد البنود: ${rows.length}</div>
+    <div class="kpis">
+      <div class="kpi"><div class="n" style="color:var(--red)">${rows.length}</div><div class="l">مواد زادت عن الدراسة</div></div>
+      <div class="kpi"><div class="n mono">${fmt(T.study)}</div><div class="l">تكلفة الدراسة لهذه المواد</div></div>
+      <div class="kpi"><div class="n mono">${fmt(T.final)}</div><div class="l">التكلفة النهائية المتوقعة</div></div>
+      <div class="kpi"><div class="n mono" style="color:var(--red)">+${fmt(T.vari)}</div><div class="l">إجمالي الزيادة المالية</div></div>
+      <div class="kpi"><div class="n mono" style="color:${varPct===null?'var(--brick-dark)':'var(--red)'}">${varPct===null?'—':'+'+fmt(varPct)+'%'}</div><div class="l">نسبة الزيادة عن الدراسة</div></div>
+      <div class="kpi"><div class="n mono" style="color:var(--amber)">+${fmt(T.price)}</div><div class="l">منها بسبب ارتفاع السعر</div></div>
+      <div class="kpi"><div class="n mono" style="color:var(--red)">+${fmt(T.qty)}</div><div class="l">منها بسبب زيادة الكمية</div></div>
+      <div class="kpi"><div class="n" style="color:var(--amber)">${priceCount}</div><div class="l">مواد ارتفع سعرها</div></div>
+      <div class="kpi"><div class="n" style="color:var(--red)">${qtyCount}</div><div class="l">مواد اشتُريت بكمية أكبر</div></div>
+    </div>
+  `;
+
+  const cols = onlyId? 16 : 17;
+  wrap.innerHTML = `
+    <div class="table-scroll">
+    <table id="overrunTable">
+      <thead><tr>${onlyId?'':'<th>المشروع</th>'}<th>كود المادة</th><th>اسم المادة</th><th>القسم</th><th>الوحدة</th><th>كمية الدراسة</th><th>سعر الوحدة (دراسة)</th><th>تكلفة الدراسة</th><th>الكمية المشتراة</th><th>متوسط سعر الشراء</th><th>فرق السعر</th><th>قيمة زيادة السعر</th><th>الكمية الزائدة</th><th>قيمة زيادة الكمية</th><th>إجمالي الزيادة المتوقعة</th><th>نسبة الزيادة</th><th>نوع الزيادة</th></tr></thead>
+      <tbody>
+        ${rows.length? rows.map(r=>{
+          const cs = OVERRUN_CAUSE[r.cause] || OVERRUN_CAUSE.other;
+          return `<tr onclick="openCostPositionDetail('${r.project.id}','${r.material.id}')" style="cursor:pointer;" title="اضغط لعرض تفاصيل المادة وأوامر الشراء">
+            ${onlyId?'':`<td>${esc(r.project.name)}</td>`}
+            <td class="mono">${esc(r.material.code||'—')}</td>
+            <td>${esc(r.material.name_ar)}</td>
+            <td><span class="badge-cat">${esc(r.material.category||'')}</span></td>
+            <td>${esc(r.material.unit||'')}</td>
+            <td class="mono">${fmt(r.studyQty)}</td>
+            <td class="mono">${fmt(r.studyPrice)}</td>
+            <td class="mono">${fmt(r.studyCost)}</td>
+            <td class="mono">${fmt(r.purchasedQty)}</td>
+            <td class="mono">${r.weightedAvg===null?'—':fmt(r.weightedAvg)}</td>
+            ${_costPosVarCell(r.priceDiff===null?0:r.priceDiff)}
+            ${_costPosVarCell(r.priceVar)}
+            <td class="mono">${r.excessQty>0?'+'+fmt(r.excessQty):'—'}</td>
+            ${_costPosVarCell(r.qtyVar)}
+            <td class="mono" style="color:var(--red);font-weight:700;">+${fmt(r.variance)}</td>
+            ${_costPosPctCell(r.variancePct)}
+            <td><span class="pill ${cs.cls}">${cs.label}</span></td>
+          </tr>`;
+        }).join('') : `<tr class="empty-row"><td colspan="${cols}">${all.length? 'لا توجد مواد زائدة مطابقة للفلاتر المختارة':'لا توجد مواد تجاوزت تكلفتها المعتمدة في الدراسة'}</td></tr>`}
+      </tbody>
+    </table>
+    </div>
+  `;
+}
+function clearOverrunFilters(){
+  ['ovrProjFilter','ovrCatFilter','ovrMatFilter','ovrSupplierFilter','ovrCauseFilter','ovrFrom','ovrTo'].forEach(id=>{
+    const s = document.getElementById(id);
+    if(s){ s.value=''; if(typeof syncSearchable==='function') syncSearchable(s); }
+  });
+  const sortEl = document.getElementById('ovrSort'); if(sortEl) sortEl.value='variance_desc';
+  const q = document.getElementById('ovrSearch'); if(q) q.value='';
+  renderOverrunReport();
 }
 function renderProjectCostReport(){
   const pid = document.getElementById('reportProjSelect').value;
