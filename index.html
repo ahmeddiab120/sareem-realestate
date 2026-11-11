@@ -400,6 +400,8 @@ body.unit-dragging .units-grid{touch-action:none;}
 .unit-floor:not([open])>summary::before{transform:rotate(-90deg);}
 .unit-floor[open]>summary{border-bottom:1px solid var(--border-soft);}
 .unit-floor>summary:focus-visible{outline:2px solid var(--brick);outline-offset:-2px;}
+.unit-floor>summary .floor-actions{margin-inline-start:auto;display:flex;gap:6px;align-items:center;}
+.unit-floor>summary .floor-actions .btn.sm{min-width:40px;justify-content:center;}
 .unit-floor .units-grid{padding:12px 14px;}
 .empty-row td{text-align:center;color:var(--ink-soft);padding:28px;font-style:italic;}
 .pill{
@@ -3895,7 +3897,7 @@ function renderUnits(){
       ${units.length? floorKeys.map(f=>{
         const open = collapsedFloors.has(f) ? '' : 'open';
         return `<details class="unit-floor" data-floor="${esc(f)}" ${open} ontoggle="toggleFloor(this)">
-          <summary>${esc(floorLabel(f))}</summary>
+          <summary>${esc(floorLabel(f))}${canEdit?`<span class="floor-actions no-print"><button type="button" class="btn sm ghost" title="تعديل الدور" onclick="event.preventDefault();event.stopPropagation();openEditFloorDialog('${project.id}','${esc(f)}')">${icon('edit')}</button><button type="button" class="btn sm danger" title="حذف الدور" onclick="event.preventDefault();event.stopPropagation();deleteFloor('${project.id}','${esc(f)}')">${icon('trash')}</button></span>`:''}</summary>
           <div class="units-grid${canEdit?' reorderable':''}">${byFloor.get(f).map(u=>unitTileHTML(project,u)).join('')}</div>
         </details>`;
       }).join('')
@@ -4077,6 +4079,93 @@ async function addFloorUnits(projectId){
   const n = codes.length;
   const noun = n===1 ? 'وحدة واحدة' : n===2 ? 'وحدتين' : n<=10 ? n+' وحدات' : n+' وحدة';
   closeModal(); toast(`تم إنشاء ${noun} في ${floorLabel(floor)}`); renderUnits();
+}
+function floorUnits(projectId, floor){
+  return DB.units
+    .filter(u=>u.project_id===projectId && unitFloorOf(u)===floor)
+    .sort((a,b)=>(Number(a.sort)||0)-(Number(b.sort)||0));
+}
+function openEditFloorDialog(projectId, floor){
+  const proj = DB.projects.find(p=>p.id===projectId);
+  const units = floorUnits(projectId, floor);
+  openModal(`
+    <h3>تعديل الدور</h3>
+    <div class="modal-sub">المشروع: ${esc(proj?proj.name:'')} — الدور الحالي: ${esc(floorLabel(floor))} (${units.length} وحدة)</div>
+    <div class="form-grid">
+      <div class="field"><label>الدور</label><select id="ef_floor" onchange="updateFloorEditPreview('${projectId}','${esc(floor)}')">${floorOptions(floor)}</select></div>
+      <div class="field"><label>عدد الوحدات</label><input id="ef_count" type="number" min="0" max="60" step="1" value="${units.length}" oninput="updateFloorEditPreview('${projectId}','${esc(floor)}')"></div>
+      <div class="field full"><label>نتيجة التعديل</label><div class="modal-sub" id="ef_preview" style="margin:0;"></div></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="applyFloorEdit('${projectId}','${esc(floor)}')">حفظ التعديلات</button>
+      <button class="btn ghost" onclick="requestCloseModal()">إلغاء</button>
+    </div>
+  `, true);
+  updateFloorEditPreview(projectId, floor);
+}
+function updateFloorEditPreview(projectId, origFloor){
+  const el = document.getElementById('ef_preview');
+  if(!el) return;
+  const newFloor = document.getElementById('ef_floor').value;
+  const count = Math.floor(Number(document.getElementById('ef_count').value)||0);
+  const units = floorUnits(projectId, origFloor);
+  const parts = [];
+  const delN = units.length - count;
+  if(delN>0){
+    const gone = units.slice(count).map(u=>u.code);
+    parts.push('سيتم حذف: ' + gone.slice(0,10).join('، ') + (gone.length>10 ? ` … (+${gone.length-10})` : ''));
+  }
+  const addN = count - units.length;
+  if(addN>0){
+    const add = planFloorCodes(projectId, newFloor, addN);
+    parts.push('سيتم إضافة: ' + add.slice(0,10).join('، ') + (add.length>10 ? ` … (+${add.length-10})` : ''));
+  }
+  if(newFloor!==origFloor) parts.push(`سينتقل ${Math.min(count,units.length)} وحدة إلى ${floorLabel(newFloor)} والأكواد بدون تغيير`);
+  el.textContent = parts.length ? parts.join(' · ') : 'بدون تغيير';
+  el.style.color = delN>0 ? 'var(--brick-dark)' : '';
+}
+async function applyFloorEdit(projectId, origFloor){
+  if(denyIf('edit_projects')) return;
+  const newFloor = document.getElementById('ef_floor').value.trim();
+  const count = Math.floor(Number(document.getElementById('ef_count').value)||0);
+  if(count<0 || count>60){ toast('عدد الوحدات يجب أن يكون بين 0 و 60'); return; }
+  const units = floorUnits(projectId, origFloor);
+  const keep = units.slice(0, count);
+  const gone = units.slice(count);
+  if(gone.length){
+    closeModal(); // askConfirm opens its own modal, so close this one first
+    if(!(await askConfirm(`سيتم حذف ${gone.length} وحدة من آخر الدور: ${gone.map(u=>u.code).join('، ')} — متابعة؟`, 'تأكيد الحذف', 'نعم، احذف'))){ renderUnits(); return; }
+    const ids = new Set(gone.map(u=>u.id));
+    DB.units = DB.units.filter(u=>!ids.has(u.id));
+  }
+  if(newFloor!==origFloor){
+    let sort = DB.units.filter(u=>u.project_id===projectId && unitFloorOf(u)===newFloor).reduce((m,u)=>Math.max(m, Number(u.sort)||0), 0) + 1;
+    keep.forEach(u=>{
+      const idx = DB.units.findIndex(x=>x.id===u.id);
+      DB.units[idx] = {...DB.units[idx], floor:newFloor, sort:sort++};
+    });
+  }
+  const addN = count - keep.length;
+  if(addN>0){
+    const codes = planFloorCodes(projectId, newFloor, addN);
+    for(const code of codes){
+      DB.units.push({ id:uid('UN'), project_id:projectId, code, floor:newFloor, sort:nextFloorSort(projectId, newFloor, null),
+        area:0, rooms:0, price:0, sale:0, paid:0, buyer:'', status:'av', delivered:false });
+    }
+  }
+  await saveKey('units', DB.units);
+  if(!gone.length) closeModal();
+  toast('تم حفظ تعديلات الدور'); renderUnits();
+}
+async function deleteFloor(projectId, floor){
+  if(denyIf('edit_projects')) return;
+  const units = floorUnits(projectId, floor);
+  if(!units.length) return;
+  if(!(await askConfirm(`حذف ${floorLabel(floor)} بكل وحداته (${units.length})؟`, 'تأكيد الحذف', 'نعم، احذف الكل'))) return;
+  const ids = new Set(units.map(u=>u.id));
+  DB.units = DB.units.filter(u=>!ids.has(u.id));
+  await saveKey('units', DB.units);
+  toast('تم حذف الدور ووحداته'); renderUnits();
 }
 
 /* =========================================================
