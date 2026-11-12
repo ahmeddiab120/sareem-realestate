@@ -23,7 +23,7 @@ create table if not exists public.units (
   sale        numeric(14,2) not null default 0,  -- سعر البيع الفعلي
   paid        numeric(14,2) not null default 0,  -- المُستلم من المشتري
   buyer       text,
-  status      text not null default 'av' check (status in ('av','pend','done')),
+  status      text not null default 'av' check (status in ('av','res','pend','done')),
   delivered   boolean default false,             -- هل تم التسليم للعميل؟
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
@@ -37,6 +37,11 @@ alter table public.units add column if not exists buyer text;
 alter table public.units add column if not exists floor text;
 alter table public.units add column if not exists sort integer;
 alter table public.units add column if not exists delivered boolean default false;
+
+-- the status check predates the 'res' (محجوز) value: databases that already created
+-- the table with the old three-value check get the constraint swapped, not rejected
+alter table public.units drop constraint if exists units_status_check;
+alter table public.units add constraint units_status_check check (status in ('av','res','pend','done'));
 
 alter table public.units enable row level security;
 grant select, insert, update, delete on public.units to authenticated;

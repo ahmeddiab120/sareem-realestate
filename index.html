@@ -3671,6 +3671,7 @@ async function deleteContractorRow(projectId, rowId){
 ========================================================= */
 const UNIT_STATUS = {
   av:   {label:'متاح',         c:'var(--green)'},
+  res:  {label:'محجوز',        c:'var(--red)'},
   pend: {label:'جاري الإفراغ', c:'var(--amber)'},
   done: {label:'تم الإفراغ',   c:'var(--brick-dark)'},
 };
@@ -3857,6 +3858,7 @@ function renderUnits(){
   const sold  = units.filter(u=>u.status!=='av');
   const doneN = units.filter(u=>u.status==='done').length;
   const pendN = units.filter(u=>u.status==='pend').length;
+  const resN  = units.filter(u=>u.status==='res').length;
   const availValue  = sum(avail, u=>u.sale);
   const soldValue   = sum(sold, u=>u.sale);
   const receivedTot = sum(sold, u=>u.paid);
@@ -3881,6 +3883,7 @@ function renderUnits(){
       <div class="kpi"><div class="n">${units.length}</div><div class="l">إجمالي الوحدات</div></div>
       <div class="kpi"><div class="n">${doneN}</div><div class="l">تم الإفراغ</div></div>
       <div class="kpi"><div class="n">${pendN}</div><div class="l">جاري الإفراغ</div></div>
+      <div class="kpi"><div class="n">${resN}</div><div class="l">محجوز</div></div>
       <div class="kpi"><div class="n">${avail.length}</div><div class="l">متاح للبيع</div></div>
       <div class="kpi"><div class="n mono">${fmt(soldValue)}</div><div class="l">قيمة المباع (ر.س)</div></div>
       <div class="kpi"><div class="n mono">${fmt(availValue)}</div><div class="l">قيمة المتاح (ر.س)</div></div>
@@ -3889,6 +3892,7 @@ function renderUnits(){
     <div class="card">
       <div class="units-legend no-print">
         <span><span class="dot" style="background:var(--green)"></span>متاح</span>
+        <span><span class="dot" style="background:var(--red)"></span>محجوز</span>
         <span><span class="dot" style="background:var(--amber)"></span>جاري الإفراغ</span>
         <span><span class="dot" style="background:var(--brick-dark)"></span>تم الإفراغ</span>
         <div class="spacer"></div>
