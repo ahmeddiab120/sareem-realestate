@@ -5831,11 +5831,12 @@ function renderUnplannedPurchasesReport(){
       <div class="kpi"><div class="n">${projCount}</div><div class="l">مشاريع بها شراء خارج الدراسة</div></div>
     </div>
   `;
-  const cols = onlyId? 9 : 10;
+  const canEdit = can('edit_quantities');
+  const cols = (onlyId? 9 : 10) + (canEdit? 1 : 0);
   wrap.innerHTML = `
     <div class="table-scroll">
     <table id="unplannedTable">
-      <thead><tr>${onlyId?'':'<th>المشروع</th>'}<th>كود المادة</th><th>اسم المادة</th><th>القسم</th><th>الوحدة</th><th>الكمية المشتراة</th><th>تكلفة المشتريات</th><th>متوسط سعر الشراء</th><th>عدد أوامر الشراء</th><th>آخر أمر شراء</th></tr></thead>
+      <thead><tr>${onlyId?'':'<th>المشروع</th>'}<th>كود المادة</th><th>اسم المادة</th><th>القسم</th><th>الوحدة</th><th>الكمية المشتراة</th><th>تكلفة المشتريات</th><th>متوسط سعر الشراء</th><th>عدد أوامر الشراء</th><th>آخر أمر شراء</th>${canEdit?'<th class="no-print">إجراء</th>':''}</tr></thead>
       <tbody>
         ${rows.length? rows.map(r=>`<tr onclick="openUnplannedDetail('${r.project.id}','${r.material.id}')" style="cursor:pointer;" title="اضغط لعرض أوامر الشراء التي اشترت هذه المادة خارج الدراسة">
           ${onlyId?'':`<td>${esc(r.project.name)}</td>`}
@@ -5848,11 +5849,49 @@ function renderUnplannedPurchasesReport(){
           <td class="mono">${r.weightedAvg===null?'—':fmt(r.weightedAvg)}</td>
           <td class="mono">${r.poCount}</td>
           <td class="mono">${esc(r.lastPoNumber||'—')}</td>
+          ${canEdit?`<td class="no-print"><button type="button" class="btn sm" title="إضافة المادة إلى دراسة هذا المشروع بسعر يدوي" onclick="event.stopPropagation();openUnplannedToStudyDialog('${r.project.id}','${r.material.id}')">إضافة للدراسة</button></td>`:''}
         </tr>`).join('') : `<tr class="empty-row"><td colspan="${cols}">${all.length? 'لا توجد بنود مطابقة للفلاتر المختارة':'لا توجد مشتريات خارج الدراسة — كل المشتريات ضمن كميات المشروع'}</td></tr>`}
       </tbody>
     </table>
     </div>
   `;
+}
+function openUnplannedToStudyDialog(projectId, materialId){
+  if(denyIf('edit_quantities')) return;
+  const proj = DB.projects.find(p=>p.id===projectId);
+  const mat = DB.materials.find(m=>m.id===materialId);
+  if(!proj || !mat) return;
+  const rec = unplannedPurchaseRows({onlyId:projectId}).find(r=>r.material.id===materialId);
+  const qty = rec ? rec.purchasedQty : 0;
+  const price = (rec && rec.weightedAvg!==null) ? rec.weightedAvg : 0;
+  openModal(`
+    <h3>إضافة مادة إلى الدراسة</h3>
+    <div class="modal-sub">المشروع: ${esc(proj.name)} — المادة: ${esc(mat.name_ar)} (${esc(mat.code||'—')}) — ستُحسب ضمن كميات المشروع بسعر يدوي</div>
+    <div class="form-grid">
+      <div class="field"><label>الكمية${mat.unit?` (${esc(mat.unit)})`:''}</label><input id="us_qty" type="number" min="0" step="any" value="${qty}"></div>
+      <div class="field"><label>سعر الوحدة (يدوي)</label><input id="us_price" type="number" min="0" step="any" value="${price}"></div>
+    </div>
+    <div class="modal-sub" style="margin-top:-4px;">الكمية والسعر معبّآن من المشتريات الفعلية لهذه المادة — يمكنك تعديلهما قبل الحفظ</div>
+    <div class="modal-actions">
+      <button class="btn" onclick="saveUnplannedToStudy('${projectId}','${materialId}')">إضافة للدراسة</button>
+      <button class="btn ghost" onclick="requestCloseModal()">إلغاء</button>
+    </div>
+  `, true);
+}
+async function saveUnplannedToStudy(projectId, materialId){
+  if(denyIf('edit_quantities')) return;
+  const mat = DB.materials.find(m=>m.id===materialId);
+  if(!mat) return;
+  const quantity = Number(document.getElementById('us_qty').value);
+  if(!quantity || quantity<=0){ toast('أدخل كمية صحيحة'); return; }
+  const manual_price = Number(document.getElementById('us_price').value)||0;
+  if(manual_price<=0){ toast('أدخل سعر الوحدة'); return; }
+  if((DB.project_quantities[projectId]||[]).some(r=>r.material_id===materialId)){ toast('المادة موجودة بالفعل في دراسة هذا المشروع'); return; }
+  if(!DB.project_quantities[projectId]) DB.project_quantities[projectId]=[];
+  DB.project_quantities[projectId].push({ id:uid('PQ'), material_id:materialId, quantity, unit:mat.unit||'',
+    pricing_method:'manual', selected_supplier_id:'', manual_price });
+  await saveKey('project_quantities', DB.project_quantities);
+  closeModal(); toast(`تمت إضافة ${mat.name_ar} إلى الدراسة`); renderUnplannedPurchasesReport();
 }
 function clearUnplannedFilters(){
   ['unplProjFilter','unplCatFilter','unplMatFilter','unplSupplierFilter','unplFrom','unplTo'].forEach(id=>{
