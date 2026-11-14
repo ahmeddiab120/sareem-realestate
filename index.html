@@ -2150,6 +2150,7 @@ function showUnsavedGuard(){
 /* ===== SEARCHABLE SELECT (type-to-filter combobox) ===== */
 const SEARCHABLE_SELECTOR = '#f_material, #f_supplier, #f_copy_src, #priceMatFilter, #priceSupplierFilter, #compareMatSelect, #reportMatSelect, #priceVarianceMatFilter, #costPosMatFilter, #costPosSupplierFilter, #unplMatFilter, #unplSupplierFilter, .po-mat-select';
 let _openSearchableApi = null;
+let _searchableOpenedAt = 0;
 function _escSel(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function enhanceSearchableSelects(root){
   (root||document).querySelectorAll(SEARCHABLE_SELECTOR).forEach(sel=> makeSearchable(sel));
@@ -2167,13 +2168,30 @@ document.addEventListener('mousedown', e=>{
 }, true);
 document.addEventListener('scroll', e=>{
   if(!_openSearchableApi) return;
+  // iOS Safari scrolls the page to reveal the focused input right after open
+  if(Date.now() - _searchableOpenedAt < 500) return;
   if(e.target && _openSearchableApi.list.contains && _openSearchableApi.list.contains(e.target)) return;
   _openSearchableApi.close();
   _openSearchableApi = null;
 }, true);
 window.addEventListener('resize', ()=>{
-  if(_openSearchableApi){ _openSearchableApi.close(); _openSearchableApi = null; }
+  if(!_openSearchableApi) return;
+  // on Android Chrome the soft keyboard resizing the viewport is not the user
+  if(Date.now() - _searchableOpenedAt < 500) return;
+  _openSearchableApi.close(); _openSearchableApi = null;
 });
+// the keyboard keeps moving the visible area for a beat after place() ran; re-pin on both Safari and Chrome
+function vvReposition(){ if(_openSearchableApi && _openSearchableApi.place) _openSearchableApi.place(); }
+if(window.visualViewport){
+  window.visualViewport.addEventListener('resize', vvReposition);
+  window.visualViewport.addEventListener('scroll', vvReposition);
+}
+// touch selection hides the list before the browser fires its synthetic click, which would land on the input or content under it
+function swallowNextClick(){
+  const h = (e)=>{ e.preventDefault(); e.stopPropagation(); document.removeEventListener('click', h, true); };
+  document.addEventListener('click', h, true);
+  setTimeout(()=> document.removeEventListener('click', h, true), 350);
+}
 
 // desktop drag-to-pan: grab anywhere on a wide table and drag sideways, like a
 // touch swipe on mobile, so you never have to reach for the scrollbar at the bottom
@@ -2281,7 +2299,7 @@ function makeSearchable(sel, opts){
     if(open) return;
     if(_openSearchableApi && _openSearchableApi!==api) _openSearchableApi.close();
     readOptions();
-    open = true; _openSearchableApi = api;
+    open = true; _openSearchableApi = api; _searchableOpenedAt = Date.now();
     wrap.classList.add('open');
     list.style.display = 'block';
     if(!noSearch) input.value = '';
@@ -2300,6 +2318,7 @@ function makeSearchable(sel, opts){
     const it = filtered[i]; if(!it) return;
     sel.value = it.value;
     sel.dispatchEvent(new Event('change', {bubbles:true}));
+    swallowNextClick();
     closeList();
   }
   function moveActive(dir){
@@ -2332,7 +2351,7 @@ function makeSearchable(sel, opts){
   const obs = new MutationObserver(()=>{ readOptions(); sync(); if(open){ render(input.value); place(); } });
   obs.observe(sel, {childList:true, subtree:true, characterData:true});
 
-  api = {wrap:wrap, list:list, sync:sync, open:openList, close:closeList,
+  api = {wrap:wrap, list:list, sync:sync, open:openList, close:closeList, place:place,
     destroy:function(){ closeList(); obs.disconnect(); if(list.parentNode) list.parentNode.removeChild(list); sel._searchable = null; }};
   sel._searchable = api;
   readOptions(); sync();
