@@ -402,6 +402,13 @@ body.unit-dragging .units-grid{touch-action:none;}
 .unit-floor>summary:focus-visible{outline:2px solid var(--brick);outline-offset:-2px;}
 .unit-floor>summary .floor-actions{margin-inline-start:auto;display:flex;gap:6px;align-items:center;}
 .unit-floor>summary .floor-actions .btn.sm{min-width:40px;justify-content:center;}
+.dup-sec{margin:16px 0;}
+.dup-sec>h3{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
+.dup-group{border:1px solid var(--border-soft);border-radius:10px;padding:10px 12px;margin:8px 0;background:var(--card);}
+.dup-reason{font-weight:700;margin-bottom:4px;}
+.dup-rec{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 0;border-top:1px dashed var(--border-soft);}
+.dup-rec .dup-meta{flex:1;min-width:180px;}
+.dup-clean{color:var(--green);font-weight:600;}
 .unit-floor .units-grid{padding:12px 14px;}
 .empty-row td{text-align:center;color:var(--ink-soft);padding:28px;font-style:italic;}
 .pill{
@@ -1860,7 +1867,8 @@ function renderSettings(){
   const box = document.getElementById('panel-settings');
   if(!box) return;
   const canAdmin = CURRENT_ROLE === 'admin';
-  const sections = [{id:'general', label:'النسخ الاحتياطي', icon:'save'}];
+  const sections = [{id:'general', label:'النسخ الاحتياطي', icon:'save'},
+                    {id:'duplicates', label:'فحص التكرارات', icon:'refill'}];
   if(canAdmin){
     sections.push({id:'users', label:'المستخدمون', icon:'user'});
     sections.push({id:'audit', label:'سجل التغييرات', icon:'clock'});
@@ -1870,7 +1878,7 @@ function renderSettings(){
   if(!sections.some(s=>s.id===SETTINGS_SECTION)) SETTINGS_SECTION = sections[0].id;
   box.innerHTML = `
     <div class="section-title">
-      <div><h2>الإعدادات</h2><div class="desc">${canAdmin ? 'النسخ الاحتياطي والاستعادة وإدارة المستخدمين وسجل التغييرات' : 'إدارة النسخ الاحتياطي واستعادة البيانات'}</div></div>
+      <div><h2>الإعدادات</h2><div class="desc">${canAdmin ? 'النسخ الاحتياطي والاستعادة وفحص التكرارات وإدارة المستخدمين وسجل التغييرات' : 'النسخ الاحتياطي والاستعادة وفحص التكرارات'}</div></div>
     </div>
     <div class="settings-layout">
       <nav class="settings-nav" aria-label="أقسام الإعدادات">
@@ -1890,6 +1898,7 @@ function settingsGo(id){
   if(!body) return;
   if(id==='users'){ body.innerHTML = '<div id="panel-users"></div>'; renderUsers(); }
   else if(id==='audit'){ body.innerHTML = '<div id="panel-audit"></div>'; renderAudit(); }
+  else if(id==='duplicates'){ body.innerHTML = renderDuplicatesSection(); }
   else body.innerHTML = renderSettingsGeneral();
 }
 function renderSettingsGeneral(){
@@ -1911,6 +1920,201 @@ function renderSettingsGeneral(){
       <button class="btn ghost" onclick="triggerRestore()">اختيار ملف والاستعادة</button>
     </div>`);
   return `<div class="card">${rows.length ? rows.join('') : '<div class="small-muted">لا توجد إعدادات متاحة لحسابك.</div>'}</div>`;
+}
+/* ===== duplicate scan (settings) =====
+   Read-only pass over the loaded data; nothing is ever deleted automatically.
+   Per-record buttons reuse the existing delete functions (own confirmation,
+   cascade and permission gate). The per-group quick action exists only for
+   kinds whose deletion is a plain filter — the cascade-heavy kinds
+   (materials, suppliers, projects) deliberately stay on the per-record path
+   so their warning is always shown. */
+function dupNorm(s){
+  return String(s==null?'':s).trim().toLowerCase().replace(/\s+/g,' ')
+    .replace(/[\u064B-\u0652\u0670]/g,'')
+    .replace(/[أإآٱ]/g,'ا').replace(/[ىي]/g,'ي').replace(/ة/g,'ه').replace(/ؤ/g,'و').replace(/ئ/g,'ي');
+}
+function dupPhone(s){
+  let d = String(s==null?'':s).replace(/\D/g,'');
+  if(d.startsWith('00')) d = d.slice(2);
+  if(d.startsWith('966')) d = '0' + d.slice(3);
+  return d;
+}
+// returns groups (arrays of 2+ members) in original DB order, so the first member is the oldest
+function dupGroups(items, keyFn){
+  const m = new Map();
+  items.forEach((x,i)=>{
+    const k = keyFn(x);
+    if(k==null || k==='') return;
+    if(!m.has(k)) m.set(k, []);
+    m.get(k).push({x, i});
+  });
+  return [...m.values()].filter(g=>g.length>1).map(g=>g.sort((a,b)=>a.i-b.i).map(e=>e.x));
+}
+function poItemsSig(po){
+  return (po.items||[]).map(it=>`${it.material_id}:${Number(it.quantity)||0}:${Number(it.unit_price)||0}`).sort().join('|');
+}
+function poTotal(po){
+  return (po.items||[]).reduce((s,it)=>s+(Number(it.quantity)||0)*(Number(it.unit_price)||0),0);
+}
+const DUP_DELETERS = {
+  po:         r=>deletePO(r.id),
+  qty:        r=>deleteQtyRow(r.pid, r.id),
+  price:      r=>deletePrice(r.id),
+  material:   r=>deleteMaterial(r.id),
+  supplier:   r=>deleteSupplier(r.id),
+  unit:       r=>deleteUnitRow(r.pid, r.id),
+  project:    r=>deleteProject(r.id),
+  contractor: r=>deleteContractorRow(r.pid, r.id),
+};
+const DUP_QUICK_PERM = { po:'edit_po', qty:'edit_quantities', price:'delete_any', unit:'edit_projects', contractor:'edit_quantities' };
+function computeDuplicates(){
+  const projName = id => (DB.projects.find(p=>p.id===id)||{}).name || '—';
+  const supName  = id => (DB.suppliers.find(s=>s.id===id)||{}).name || '—';
+  const matName  = id => (DB.materials.find(m=>m.id===id)||{}).name_ar || '—';
+  const S = [];
+  function sec(kind, title, quick){ const s = {kind, title, quick, groups:[], _sigs:{}}; S.push(s); return s; }
+  // the same pair can match two criteria (identical items AND same number): show it once
+  function push(s, members, reason, records){
+    const sig = members.map(m=>m.id).sort().join(',');
+    if(s._sigs[sig]) return;
+    s._sigs[sig] = 1;
+    s.groups.push({reason, records});
+  }
+
+  const sPO = sec('po', 'أوامر الشراء', true);
+  dupGroups(DB.purchase_orders, po=>{
+    const sig = poItemsSig(po);
+    return sig ? [po.project_id, po.supplier_id, String(po.order_date||''), sig].join('§') : null;
+  }).forEach(ms=>{
+    const m0 = ms[0];
+    push(sPO, ms,
+      `أوامر متطابقة: ${projName(m0.project_id)} · ${supName(m0.supplier_id)} · ${m0.order_date||'—'} · نفس البنود (${(m0.items||[]).length}) · الإجمالي ${fmt(poTotal(m0))}`,
+      ms.map(po=>({ id:po.id, label:`${po.po_number||'—'} · ${po.order_date||'—'} · ${fmt(poTotal(po))} · ${(po.items||[]).length} بنود${po.status?` · ${po.status}`:''}` })));
+  });
+  dupGroups(DB.purchase_orders, po=>normPONumber(po.po_number)||null).forEach(ms=>{
+    push(sPO, ms,
+      `رقم أمر مكرر: ${ms[0].po_number||'—'} (${projName(ms[0].project_id)})`,
+      ms.map(po=>({ id:po.id, label:`${po.po_number||'—'} · ${po.order_date||'—'} · ${supName(po.supplier_id)} · ${fmt(poTotal(po))}` })));
+  });
+
+  const sQty = sec('qty', 'كميات الدراسة', true);
+  Object.keys(DB.project_quantities).forEach(pid=>{
+    dupGroups(DB.project_quantities[pid]||[], r=>r.material_id).forEach(ms=>{
+      push(sQty, ms,
+        `المادة «${matName(ms[0].material_id)}» مضافة ${ms.length} مرات في دراسة ${projName(pid)}`,
+        ms.map(r=>({ id:r.id, pid, label:`كمية ${fmt(Number(r.quantity)||0)} ${r.unit||''} · ${r.pricing_method==='manual' ? `سعر يدوي ${fmt(Number(r.manual_price)||0)}` : `تسعير: ${r.pricing_method||'—'}`}`.trim() })));
+    });
+  });
+
+  const sPrice = sec('price', 'الأسعار', true);
+  dupGroups(DB.prices, p=>[p.material_id, p.supplier_id, String(p.price_date||''), String(Number(p.price)||0)].join('§')).forEach(ms=>{
+    const m0 = ms[0];
+    push(sPrice, ms,
+      `سعر مكرر: ${matName(m0.material_id)} · ${supName(m0.supplier_id)} · ${m0.price_date||'—'} · ${fmt(Number(m0.price)||0)}`,
+      ms.map(p=>({ id:p.id, label:`${matName(p.material_id)} · ${supName(p.supplier_id)} · ${p.price_date||'—'} · ${fmt(Number(p.price)||0)}` })));
+  });
+
+  const sMat = sec('material', 'المواد', false);
+  const matLabel = m=>`${m.name_ar} · كود ${m.code||'—'} · ${m.category||'غير مصنف'}`;
+  dupGroups(DB.materials, m=>dupNorm(m.name_ar)).forEach(ms=>{
+    push(sMat, ms, `اسم متطابق: «${ms[0].name_ar}»`, ms.map(m=>({ id:m.id, label:matLabel(m) })));
+  });
+  dupGroups(DB.materials, m=>dupNorm(m.code)).forEach(ms=>{
+    push(sMat, ms, `كود مكرر: ${ms[0].code}`, ms.map(m=>({ id:m.id, label:matLabel(m) })));
+  });
+
+  const sSup = sec('supplier', 'الموردون', false);
+  const supLabel = s=>`${s.name} · ${s.phone||'—'} · ${s.city||'—'}`;
+  dupGroups(DB.suppliers, s=>dupNorm(s.name)).forEach(ms=>{
+    push(sSup, ms, `اسم متطابق: «${ms[0].name}»`, ms.map(s=>({ id:s.id, label:supLabel(s) })));
+  });
+  dupGroups(DB.suppliers, s=>{ const d = dupPhone(s.phone); return d.length>=7 ? d : null; }).forEach(ms=>{
+    push(sSup, ms, `رقم جوال مكرر: ${ms[0].phone}`, ms.map(s=>({ id:s.id, label:supLabel(s) })));
+  });
+
+  const sUnit = sec('unit', 'الوحدات', true);
+  dupGroups(DB.units, u=>{ const c = String(u.code||'').trim().toLowerCase(); return c ? u.project_id+'§'+c : null; }).forEach(ms=>{
+    push(sUnit, ms,
+      `الكود ${ms[0].code} مكرر في ${projName(ms[0].project_id)}`,
+      ms.map(u=>({ id:u.id, pid:u.project_id, label:`${projName(u.project_id)} · ${u.code} · ${floorLabel(u.floor)}` })));
+  });
+
+  const sCon = sec('contractor', 'المقاولون', true);
+  dupGroups(DB.project_contractors, c=>{ const n = dupNorm(c.name); return n ? c.project_id+'§'+n+'§'+String(Number(c.contract_value)||0) : null; }).forEach(ms=>{
+    push(sCon, ms,
+      `المقاول «${ms[0].name}» مكرر في ${projName(ms[0].project_id)} بنفس قيمة العقد`,
+      ms.map(c=>({ id:c.id, pid:c.project_id, label:`${projName(c.project_id)} · ${c.name} · ${fmt(Number(c.contract_value)||0)}` })));
+  });
+
+  const sProj = sec('project', 'المشاريع', false);
+  dupGroups(DB.projects, p=>dupNorm(p.name)).forEach(ms=>{
+    push(sProj, ms, `اسم مشروع مكرر: «${ms[0].name}»`, ms.map(p=>({ id:p.id, label:`${p.name}` })));
+  });
+
+  S.forEach(s=>{ delete s._sigs; });
+  return S;
+}
+let _dupScan = null;
+function renderDuplicatesSection(){
+  return `
+    <div class="card">
+      <div class="setting-row">
+        <div class="sr-text">
+          <h3>${icon('refill')} فحص التكرارات</h3>
+          <p>يفحص كل البيانات بحثًا عن سجلات مكررة: أوامر شراء متطابقة أو بنفس الرقم، مواد وموردون بنفس الاسم، أسعار وكميات ووحدات ومقاولون ومشاريع مكررة. لا يُحذف أي شيء تلقائيًا — المراجعة والحذف بيدك.</p>
+        </div>
+        <button class="btn secondary" onclick="runDupScan()">تشغيل الفحص</button>
+      </div>
+      <div id="dupResults">${_dupScan ? dupResultsHtml() : ''}</div>
+    </div>`;
+}
+function runDupScan(){
+  _dupScan = computeDuplicates();
+  const el = document.getElementById('dupResults');
+  if(el) el.innerHTML = dupResultsHtml();
+}
+function dupResultsHtml(){
+  const total = _dupScan.reduce((a,s)=>a+s.groups.length, 0);
+  const secs = _dupScan.map((s,si)=>`
+    <div class="dup-sec">
+      <h3>${esc(s.title)}${s.groups.length ? ` <span class="badge-cat" style="color:var(--red);">${s.groups.length} مجموعة</span>` : ''}</h3>
+      ${s.groups.length ? s.groups.map((g,gi)=>`
+        <div class="dup-group">
+          <div class="dup-reason">${esc(g.reason)}</div>
+          ${g.records.map((r,ri)=>`
+            <div class="dup-rec">
+              <span class="dup-meta">${esc(r.label)}</span>
+              <button type="button" class="btn sm danger" title="حذف هذا السجل" onclick="dupDeleteRecord(${si},${gi},${ri})">${icon('trash')} حذف</button>
+            </div>`).join('')}
+          ${s.quick ? `<div class="dup-rec" style="border-top:none;justify-content:flex-end;"><button type="button" class="btn sm ghost" onclick="dupKeepOldest(${si},${gi})">أبقِ الأقدم واحذف الأحدث</button></div>` : ''}
+        </div>`).join('') : '<div class="dup-clean">✓ لا يوجد تكرار</div>'}
+    </div>`).join('');
+  return `<div style="margin-top:12px;">${secs}<div class="small-muted" style="margin-top:8px;">${total ? `عدد المجموعات: ${total} — راجع كل مجموعة واحذف ما تراه مكررًا فعلًا` : '✓ النتيجة: لا يوجد أي تكرار في كل الأقسام'}</div></div>`;
+}
+async function dupDeleteRecord(si,gi,ri){
+  const s = _dupScan && _dupScan[si]; if(!s) return;
+  const g = s.groups[gi]; const rec = g && g.records[ri]; if(!rec) return;
+  await DUP_DELETERS[s.kind](rec);
+  if(document.getElementById('dupResults')) runDupScan();
+}
+async function dupKeepOldest(si,gi){
+  const s = _dupScan && _dupScan[si]; if(!s || !s.quick) return;
+  const g = s.groups[gi]; if(!g || g.records.length<2) return;
+  if(denyIf(DUP_QUICK_PERM[s.kind])) return;
+  const gone = g.records.slice(1);
+  const noun = gone.length===1 ? 'سجل واحد' : gone.length===2 ? 'سجلين' : gone.length<=10 ? gone.length+' سجلات' : gone.length+' سجلًا';
+  if(!(await askConfirm(`سيتم حذف ${noun} والإبقاء على الأقدم: ${gone.map(r=>r.label).join('، ')} — متابعة؟`, 'تأكيد الحذف', 'نعم، احذف'))) return;
+  const ids = new Set(gone.map(r=>r.id));
+  if(s.kind==='po'){ DB.purchase_orders = DB.purchase_orders.filter(x=>!ids.has(x.id)); await saveKey('purchase_orders', DB.purchase_orders); }
+  else if(s.kind==='price'){ DB.prices = DB.prices.filter(x=>!ids.has(x.id)); await saveKey('prices', DB.prices); }
+  else if(s.kind==='unit'){ DB.units = DB.units.filter(x=>!ids.has(x.id)); await saveKey('units', DB.units); }
+  else if(s.kind==='contractor'){ DB.project_contractors = DB.project_contractors.filter(x=>!ids.has(x.id)); await saveKey('project_contractors', DB.project_contractors); }
+  else if(s.kind==='qty'){
+    gone.forEach(r=>{ DB.project_quantities[r.pid] = (DB.project_quantities[r.pid]||[]).filter(x=>x.id!==r.id); });
+    await saveKey('project_quantities', DB.project_quantities);
+  }
+  toast('تم حذف ' + noun);
+  if(document.getElementById('dupResults')) runDupScan();
 }
 function _pfMsg(text, kind){
   const el = document.getElementById('pfMsg');
