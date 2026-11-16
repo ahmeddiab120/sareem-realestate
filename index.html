@@ -1454,11 +1454,14 @@ function icon(name){
   return body ? `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${body}</svg>` : '';
 }
 function toast(msg){
+  releaseModalBusy();
   const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');
   clearTimeout(window._toastTimer); window._toastTimer=setTimeout(()=>t.classList.remove('show'),2200);
 }
 
+var _saveKeyDepth = 0;
 async function saveKey(key,val){
+  _saveKeyDepth++;
   try{ await window.storage.set(key, JSON.stringify(val)); }
   catch(e){
     console.error('storage set failed',key,e);
@@ -1468,6 +1471,7 @@ async function saveKey(key,val){
     toast('تعذر الحفظ: ' + m.slice(0,140));
     throw e;
   }
+  finally{ _saveKeyDepth--; }
 }
 async function loadKey(key,fallback){
   try{
@@ -2107,16 +2111,60 @@ function _markModalDirty(e){
   box.addEventListener('input', _markModalDirty, true);
   box.addEventListener('change', _markModalDirty, true);
 })();
+/* a slow Supabase response keeps the dialog open well after the first click on
+   its save button, and an impatient second click would run the whole handler
+   again and duplicate the record. the action buttons therefore lock on the
+   first click and stay locked until the flow reports completion — closeModal on
+   success, toast on rejection — with macrotask release for synchronous handlers
+   and a timeout as the last-resort unlock. */
+var _modalBusyBtn = null, _modalBusyLabel = '', _modalBusyTimer = 0, _modalBusyLabelTimer = 0;
+function releaseModalBusy(){
+  const b = _modalBusyBtn;
+  _modalBusyBtn = null;
+  clearTimeout(_modalBusyTimer); clearTimeout(_modalBusyLabelTimer);
+  if(!b) return;
+  b.disabled = false;
+  b.innerHTML = _modalBusyLabel;
+}
+function guardModalActions(box){
+  box.querySelectorAll('.modal-actions .btn:not(.ghost)').forEach(b=>{
+    if(!b.onclick) return;
+    const orig = b.onclick;
+    b.onclick = function(e){
+      if(b.disabled || _modalBusyBtn){ if(e){ e.preventDefault(); e.stopPropagation(); } return false; }
+      _modalBusyBtn = b; _modalBusyLabel = b.innerHTML;
+      b.disabled = true;
+      const busyText = b.classList.contains('danger') ? 'جارٍ التنفيذ…' : 'جارٍ الحفظ…';
+      // the label swap waits a beat so it never flashes on instant handlers
+      _modalBusyLabelTimer = setTimeout(()=>{ if(_modalBusyBtn===b) b.innerHTML = busyText; }, 60);
+      _modalBusyTimer = setTimeout(releaseModalBusy, 30000);
+      const depthBefore = _saveKeyDepth;
+      let out;
+      try{ out = orig.call(b, e); }
+      catch(err){ releaseModalBusy(); throw err; }
+      if(out && typeof out.then === 'function'){
+        out.then(()=>{ if(_modalBusyBtn===b) releaseModalBusy(); },
+                 ()=>{ if(_modalBusyBtn===b) releaseModalBusy(); });
+      } else if(_saveKeyDepth === depthBefore){
+        setTimeout(()=>{ if(_modalBusyBtn===b) releaseModalBusy(); }, 0);
+      }
+      return out;
+    };
+  });
+}
 function openModal(html, wide){
   const box = document.getElementById('modalBox');
+  releaseModalBusy();
   destroySearchablesIn(box);
   box.innerHTML = html;
   box.classList.toggle('wide', !!wide);
   document.getElementById('modalOverlay').classList.add('active');
   enhanceSearchableSelects(box);
+  guardModalActions(box);
   _modalDirty = false;
 }
 function closeModal(){
+  releaseModalBusy();
   const guard = document.getElementById('unsavedGuard');
   if(guard) guard.remove();
   document.getElementById('modalOverlay').classList.remove('active');
