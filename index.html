@@ -409,6 +409,8 @@ body.unit-dragging .units-grid{touch-action:none;}
 .dup-rec{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 0;border-top:1px dashed var(--border-soft);}
 .dup-rec .dup-meta{flex:1;min-width:180px;}
 .dup-clean{color:var(--green);font-weight:600;}
+.dup-spin{display:inline-flex;animation:dupspin 1s linear infinite;}
+@keyframes dupspin{to{transform:rotate(360deg);}}
 .unit-floor .units-grid{padding:12px 14px;}
 .empty-row td{text-align:center;color:var(--ink-soft);padding:28px;font-style:italic;}
 .pill{
@@ -1898,7 +1900,7 @@ function settingsGo(id){
   if(!body) return;
   if(id==='users'){ body.innerHTML = '<div id="panel-users"></div>'; renderUsers(); }
   else if(id==='audit'){ body.innerHTML = '<div id="panel-audit"></div>'; renderAudit(); }
-  else if(id==='duplicates'){ body.innerHTML = renderDuplicatesSection(); }
+  else if(id==='duplicates'){ body.innerHTML = renderDuplicatesSection(); runDupScan(); }
   else body.innerHTML = renderSettingsGeneral();
 }
 function renderSettingsGeneral(){
@@ -1931,6 +1933,7 @@ function renderSettingsGeneral(){
 function dupNorm(s){
   return String(s==null?'':s).trim().toLowerCase().replace(/\s+/g,' ')
     .replace(/[\u064B-\u0652\u0670]/g,'')
+    .replace(/[\u0640\u200B-\u200F\u202A-\u202E\uFEFF]/g,'')
     .replace(/[أإآٱ]/g,'ا').replace(/[ىي]/g,'ي').replace(/ة/g,'ه').replace(/ؤ/g,'و').replace(/ئ/g,'ي');
 }
 function dupPhone(s){
@@ -2063,18 +2066,54 @@ function renderDuplicatesSection(){
           <h3>${icon('refill')} فحص التكرارات</h3>
           <p>يفحص كل البيانات بحثًا عن سجلات مكررة: أوامر شراء متطابقة أو بنفس الرقم، مواد وموردون بنفس الاسم، أسعار وكميات ووحدات ومقاولون ومشاريع مكررة. لا يُحذف أي شيء تلقائيًا — المراجعة والحذف بيدك.</p>
         </div>
-        <button class="btn secondary" onclick="runDupScan()">تشغيل الفحص</button>
+        <button class="btn secondary" id="dupScanBtn" onclick="runDupScan()">تشغيل الفحص</button>
       </div>
       <div id="dupResults">${_dupScan ? dupResultsHtml() : ''}</div>
     </div>`;
 }
-function runDupScan(){
-  _dupScan = computeDuplicates();
-  const el = document.getElementById('dupResults');
-  if(el) el.innerHTML = dupResultsHtml();
+let _dupScanAt = 0, _dupScanCount = 0, _dupScanBusy = false;
+async function runDupScan(){
+  if(_dupScanBusy) return;
+  _dupScanBusy = true;
+  const b = document.getElementById('dupScanBtn');
+  if(b){ b.disabled = true; b.innerHTML = '<span class="dup-spin">'+icon('refill')+'</span> جارٍ الفحص…'; }
+  try{
+    // pull the freshest copy of every collection so the scan always reflects
+    // what is actually in the database, including changes from other devices
+    let failed = false;
+    const fresh = async (key, fb)=>{
+      try{ const r = await window.storage.get(key); if(r && r.value) return JSON.parse(r.value); return fb; }
+      catch(e){ failed = true; return fb; }
+    };
+    const [mats,sups,prices,projs,qt,pos,cons,units] = await Promise.all([
+      fresh('materials',[]), fresh('suppliers',[]), fresh('prices',[]), fresh('projects',[]),
+      fresh('project_quantities',{}), fresh('purchase_orders',[]), fresh('project_contractors',[]), fresh('units',[])
+    ]);
+    if(failed){
+      toast('تعذر جلب أحدث البيانات — الفحص تم على النسخة المحلية وقد لا تكون محدثة');
+    }else{
+      DB.materials = mats; DB.suppliers = sups; DB.prices = prices; DB.projects = projs;
+      DB.project_quantities = qt; DB.purchase_orders = pos; DB.project_contractors = cons; DB.units = units;
+      if(DB.projects.length && !DB.projects.find(p=>p.id===ACTIVE_PROJECT_ID)) ACTIVE_PROJECT_ID = DB.projects[0].id;
+    }
+    _dupScanCount = DB.materials.length + DB.suppliers.length + DB.prices.length + DB.projects.length
+      + DB.purchase_orders.length + DB.project_contractors.length + DB.units.length
+      + Object.keys(DB.project_quantities).reduce((a,k)=>a+(DB.project_quantities[k]||[]).length,0);
+    _dupScan = computeDuplicates();
+    _dupScanAt = Date.now();
+    const el = document.getElementById('dupResults');
+    if(el) el.innerHTML = dupResultsHtml();
+  } finally {
+    _dupScanBusy = false;
+    const bb = document.getElementById('dupScanBtn');
+    if(bb){ bb.disabled = false; bb.innerHTML = 'تشغيل الفحص'; }
+  }
 }
 function dupResultsHtml(){
   const total = _dupScan.reduce((a,s)=>a+s.groups.length, 0);
+  const d = new Date(_dupScanAt);
+  const hh = String(d.getHours()).padStart(2,'0'), mi = String(d.getMinutes()).padStart(2,'0');
+  const meta = `<div class="small-muted" style="margin-bottom:10px;">${icon('clock')} تم فحص ${_dupScanCount} سجلًا · الساعة ${hh}:${mi}</div>`;
   const secs = _dupScan.map((s,si)=>`
     <div class="dup-sec">
       <h3>${esc(s.title)}${s.groups.length ? ` <span class="badge-cat" style="color:var(--red);">${s.groups.length} مجموعة</span>` : ''}</h3>
@@ -2089,7 +2128,7 @@ function dupResultsHtml(){
           ${s.quick ? `<div class="dup-rec" style="border-top:none;justify-content:flex-end;"><button type="button" class="btn sm ghost" onclick="dupKeepOldest(${si},${gi})">أبقِ الأقدم واحذف الأحدث</button></div>` : ''}
         </div>`).join('') : '<div class="dup-clean">✓ لا يوجد تكرار</div>'}
     </div>`).join('');
-  return `<div style="margin-top:12px;">${secs}<div class="small-muted" style="margin-top:8px;">${total ? `عدد المجموعات: ${total} — راجع كل مجموعة واحذف ما تراه مكررًا فعلًا` : '✓ النتيجة: لا يوجد أي تكرار في كل الأقسام'}</div></div>`;
+  return `<div style="margin-top:12px;">${meta}${secs}<div class="small-muted" style="margin-top:8px;">${total ? `عدد المجموعات: ${total} — راجع كل مجموعة واحذف ما تراه مكررًا فعلًا` : '✓ النتيجة: لا يوجد أي تكرار في كل الأقسام'}</div></div>`;
 }
 async function dupDeleteRecord(si,gi,ri){
   const s = _dupScan && _dupScan[si]; if(!s) return;
