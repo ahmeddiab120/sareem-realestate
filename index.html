@@ -1930,14 +1930,21 @@ function renderSettingsGeneral(){
    kinds whose deletion is a plain filter — the cascade-heavy kinds
    (materials, suppliers, projects) deliberately stay on the per-record path
    so their warning is always shown. */
+function dupDigits(s){
+  return String(s==null?'':s)
+    .replace(/[\u0660-\u0669]/g, d=>String(d.charCodeAt(0)-0x0660))
+    .replace(/[\u06F0-\u06F9]/g, d=>String(d.charCodeAt(0)-0x06F0));
+}
 function dupNorm(s){
-  return String(s==null?'':s).trim().toLowerCase().replace(/\s+/g,' ')
+  return dupDigits(String(s==null?'':s)).trim().toLowerCase().replace(/\s+/g,' ')
     .replace(/[\u064B-\u0652\u0670]/g,'')
     .replace(/[\u0640\u200B-\u200F\u202A-\u202E\uFEFF]/g,'')
+    .replace(/[\u2010-\u2015\u2212]/g,'-').replace(/ ?- ?/g,'-')
+    .replace(/(\d)\s+([^\d\s])/g,'$1$2').replace(/([^\d\s])\s+(\d)/g,'$1$2')
     .replace(/[أإآٱ]/g,'ا').replace(/[ىي]/g,'ي').replace(/ة/g,'ه').replace(/ؤ/g,'و').replace(/ئ/g,'ي');
 }
 function dupPhone(s){
-  let d = String(s==null?'':s).replace(/\D/g,'');
+  let d = dupDigits(String(s==null?'':s)).replace(/\D/g,'');
   if(d.startsWith('00')) d = d.slice(2);
   if(d.startsWith('966')) d = '0' + d.slice(3);
   return d;
@@ -1999,6 +2006,17 @@ function computeDuplicates(){
       `رقم أمر مكرر: ${ms[0].po_number||'—'} (${projName(ms[0].project_id)})`,
       ms.map(po=>({ id:po.id, label:`${po.po_number||'—'} · ${po.order_date||'—'} · ${supName(po.supplier_id)} · ${fmt(poTotal(po))}` })));
   });
+  // near-duplicates: same project/supplier/date and the exact same material list,
+  // but quantities or prices differ — most often a re-entered order, so flag for review
+  dupGroups(DB.purchase_orders, po=>{
+    const ids = (po.items||[]).map(it=>it.material_id).sort().join('|');
+    return ids ? [po.project_id, po.supplier_id, String(po.order_date||''), ids].join('§') : null;
+  }).forEach(ms=>{
+    const m0 = ms[0];
+    push(sPO, ms,
+      `أوامر متشابهة — تحقق: ${projName(m0.project_id)} · ${supName(m0.supplier_id)} · ${m0.order_date||'—'} · نفس المواد (${(m0.items||[]).length}) بكميات أو أسعار مختلفة`,
+      ms.map(po=>({ id:po.id, label:`${po.po_number||'—'} · ${po.order_date||'—'} · ${fmt(poTotal(po))} · ${(po.items||[]).length} بنود` })));
+  });
 
   const sQty = sec('qty', 'كميات الدراسة', true);
   Object.keys(DB.project_quantities).forEach(pid=>{
@@ -2015,6 +2033,13 @@ function computeDuplicates(){
     push(sPrice, ms,
       `سعر مكرر: ${matName(m0.material_id)} · ${supName(m0.supplier_id)} · ${m0.price_date||'—'} · ${fmt(Number(m0.price)||0)}`,
       ms.map(p=>({ id:p.id, label:`${matName(p.material_id)} · ${supName(p.supplier_id)} · ${p.price_date||'—'} · ${fmt(Number(p.price)||0)}` })));
+  });
+  // same material+supplier+value recorded more than once on different (or no) dates
+  dupGroups(DB.prices, p=>[p.material_id, p.supplier_id, String(Number(p.price)||0)].join('§')).forEach(ms=>{
+    const m0 = ms[0];
+    push(sPrice, ms,
+      `سعر مكرر بنفس القيمة — تحقق: ${matName(m0.material_id)} · ${supName(m0.supplier_id)} · ${fmt(Number(m0.price)||0)} · مسجل ${ms.length} مرات بتواريخ مختلفة أو بدون تاريخ`,
+      ms.map(p=>({ id:p.id, label:`${matName(p.material_id)} · ${supName(p.supplier_id)} · ${p.price_date||'بدون تاريخ'} · ${fmt(Number(p.price)||0)}` })));
   });
 
   const sMat = sec('material', 'المواد', false);
@@ -2048,6 +2073,12 @@ function computeDuplicates(){
       `المقاول «${ms[0].name}» مكرر في ${projName(ms[0].project_id)} بنفس قيمة العقد`,
       ms.map(c=>({ id:c.id, pid:c.project_id, label:`${projName(c.project_id)} · ${c.name} · ${fmt(Number(c.contract_value)||0)}` })));
   });
+  // same contractor and scope in one project but different values — usually a re-entry
+  dupGroups(DB.project_contractors, c=>{ const n = dupNorm(c.name); return n ? c.project_id+'§'+n+'§'+dupNorm(c.scope||'') : null; }).forEach(ms=>{
+    push(sCon, ms,
+      `المقاول «${ms[0].name}» مكرر في ${projName(ms[0].project_id)}${ms[0].scope?` بنفس النطاق «${ms[0].scope}»`:''} بقيمة مختلفة — تحقق: ${ms.map(c=>fmt(Number(c.contract_value)||0)).join(' / ')}`,
+      ms.map(c=>({ id:c.id, pid:c.project_id, label:`${projName(c.project_id)} · ${c.name} · ${c.scope||'بدون نطاق'} · ${fmt(Number(c.contract_value)||0)}` })));
+  });
 
   const sProj = sec('project', 'المشاريع', false);
   dupGroups(DB.projects, p=>dupNorm(p.name)).forEach(ms=>{
@@ -2064,7 +2095,7 @@ function renderDuplicatesSection(){
       <div class="setting-row">
         <div class="sr-text">
           <h3>${icon('refill')} فحص التكرارات</h3>
-          <p>يفحص كل البيانات بحثًا عن سجلات مكررة: أوامر شراء متطابقة أو بنفس الرقم، مواد وموردون بنفس الاسم، أسعار وكميات ووحدات ومقاولون ومشاريع مكررة. لا يُحذف أي شيء تلقائيًا — المراجعة والحذف بيدك.</p>
+          <p>يفحص كل البيانات بحثًا عن سجلات مكررة: أوامر شراء متطابقة أو بنفس الرقم، مواد وموردون بنفس الاسم، أسعار وكميات ووحدات ومقاولون ومشاريع مكررة. ويكشف أيضًا السجلات المتشابهة التي تحتاج تحققًا: أسعار بنفس القيمة وتواريخ مختلفة، وأوامر بنفس المواد وبكميات أو أسعار مختلفة، ومقاولون بنفس الاسم والنطاق وقيم مختلفة. ويتجاهل الفحص الفروق الكتابية مثل الأرقام الهندية (٠١٢٣٤٥٦٧٨٩) والتشكيل والحروف الخفية وأنواع الشرطات. لا يُحذف أي شيء تلقائيًا — المراجعة والحذف بيدك.</p>
         </div>
         <button class="btn secondary" id="dupScanBtn" onclick="runDupScan()">تشغيل الفحص</button>
       </div>
