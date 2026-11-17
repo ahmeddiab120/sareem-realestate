@@ -3802,6 +3802,8 @@ async function saveQtyRow(projectId, rowId){
   const material_id = document.getElementById('f_material').value;
   const quantity = Number(document.getElementById('f_quantity').value);
   if(!quantity || quantity<=0){ toast('أدخل كمية صحيحة'); return; }
+  const dupRow = (DB.project_quantities[projectId]||[]).find(x=>x.material_id===material_id && x.id!==rowId);
+  if(dupRow){ toast('هذه المادة مضافة بالفعل في دراسة هذا المشروع — عدّل البند الموجود بدلاً من إضافة بند جديد'); return; }
   const method = document.getElementById('f_method').value;
   const data = {
     material_id, quantity, unit: document.getElementById('f_unit').value,
