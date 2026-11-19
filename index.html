@@ -4212,6 +4212,8 @@ function renderUnits(){
   // stable sort: units the user has arranged keep their order, the rest stay in add order
   byFloor.forEach(list=> list.sort((a,b)=>(Number(a.sort)||0)-(Number(b.sort)||0)));
   const floorKeys = Array.from(byFloor.keys()).sort(compareFloors);
+  const pc = profitabilityCalc(project.id);
+  const pcOn = !!(pc && pc.units.length && pc.baseTotal>0);
 
   el.innerHTML = `
     <div class="section-title">
@@ -4230,6 +4232,9 @@ function renderUnits(){
       <div class="kpi"><div class="n">${avail.length}</div><div class="l">متاح للبيع</div></div>
       <div class="kpi"><div class="n mono">${fmt(soldValue)}</div><div class="l">قيمة المباع (ر.س)</div></div>
       <div class="kpi"><div class="n mono">${fmt(availValue)}</div><div class="l">قيمة المتاح (ر.س)</div></div>
+      ${pcOn?`<div class="kpi" title="التكلفة المتوقعة ÷ إجمالي المساحات — التفاصيل في تقرير الربحية"><div class="n mono">${pc.costPerSqm==null?'—':fmt(pc.costPerSqm)}</div><div class="l">تكلفة المتر المتوقعة (ر.س)</div></div>
+      <div class="kpi" title="الإيراد المتوقع − التكلفة المتوقعة"><div class="n mono" style="color:${pc.profitTotal>=0?'var(--green)':'var(--red)'}">${fmt(pc.profitTotal)}</div><div class="l">الربح المتوقع${pc.marginTotal!=null?` (${fmt(pc.marginTotal)}%)`:''}</div></div>
+      <div class="kpi" title="أقل عدد وحدات تغطي أسعار بيعها التكلفة كاملة — بافتراض بيع الأعلى سعراً أولاً"><div class="n">${pc.beUnits!=null?`${pc.beUnits} / ${units.length}`:'—'}</div><div class="l">وحدات مطلوبة للتعادل</div></div>`:''}
     </div>
 
     <div class="card">
@@ -5501,6 +5506,26 @@ function renderReports(){
         <div id="unplannedWrap"></div>
       </div>
     </details>
+
+    <details class="report-fold">
+      <summary>10) تقرير ربحية المشروع ونقطة التعادل</summary>
+      <div class="card" id="card-profitability">
+        <h3 class="fold-title" style="margin-top:0;font-size:15px;color:var(--brick-dark);">10) تقرير ربحية المشروع ونقطة التعادل</h3>
+        <div class="small-muted no-print" style="margin-bottom:8px;">تكلفة كل وحدة من واقع تكلفة المشروع ومساحتها مقابل سعر بيعها: الربح والهامش وأقل سعر مقبول، وعدد الوحدات التي تغطي التكلفة كاملة</div>
+        <div class="toolbar no-print">
+          <select id="profProjSelect" onchange="renderProfitabilityReport()">
+            <option value="">اختر مشروعاً...</option>
+            ${DB.projects.map(p=>`<option value="${p.id}" ${p.id===ACTIVE_PROJECT_ID?'selected':''}>${esc(p.name)}</option>`).join('')}
+          </select>
+          <label class="small-muted" style="display:flex;align-items:center;gap:6px;">الهامش المستهدف %
+            <input id="profMargin" type="number" min="0" max="200" step="1" value="${PROFIT_TARGET_MARGIN}" style="width:70px;" onchange="PROFIT_TARGET_MARGIN=Math.max(0,Number(this.value)||0);renderProfitabilityReport()">
+          </label>
+          <button class="btn sm secondary" onclick="printReportCard('card-profitability')">${icon('print')} طباعة</button>
+          <button class="btn sm ghost" onclick="exportCsv('profitabilityTable','تقرير_ربحية_مشروع')">تصدير CSV</button>
+        </div>
+        <div id="profitabilityWrap"><div class="small-muted">اختر مشروعاً لعرض التقرير</div></div>
+      </div>
+    </details>
   `;
   enhanceSearchableSelects(el);
   renderCostM2Report();
@@ -5510,6 +5535,7 @@ function renderReports(){
   renderPriceVarianceReport();
   renderCostPositionReport();
   renderUnplannedPurchasesReport();
+  renderProfitabilityReport();
 }
 function renderSupplierUsageReport(){
   const wrap = document.getElementById('supplierUsageWrap');
@@ -6338,6 +6364,133 @@ function renderCostM2Report(){
       </tbody>
     </table>
     </div>
+  `;
+}
+/* =========================================================
+   PROJECT PROFITABILITY & BREAK-EVEN — report #10 + units KPIs
+   cost lenses: plan  = study + extras + contractor contracts (computeProjectCost)
+                expected = materials at actual purchase prices (remaining at
+                study/weighted price) + unplanned purchases + same extras + contractors
+========================================================= */
+let PROFIT_TARGET_MARGIN = 15;
+function profitabilityCalc(projectId){
+  const project = DB.projects.find(p=>p.id===projectId);
+  if(!project) return null;
+  const units = DB.units.filter(u=>u.project_id===projectId);
+  const plan = computeProjectCost(projectId);
+  const cp = costPositionRows({onlyId:projectId});
+  const unpl = unplannedPurchaseRows({onlyId:projectId});
+  const matExpected = cp.reduce((a,r)=>a+(Number(r.finalExpected)||0),0)
+                    + unpl.reduce((a,r)=>a+(Number(r.purchasedCost)||0),0);
+  const ec = project.extra_costs||{};
+  const extrasExpected = matExpected*((Number(ec.transport_pct)||0)+(Number(ec.wastage_pct)||0)+(Number(ec.vat_pct)||0))/100 + (Number(ec.other_amount)||0);
+  const expTotal = matExpected + extrasExpected + plan.contractorCost;
+  const baseTotal = (cp.length||unpl.length) ? expTotal : plan.finalTotal;
+  const totalArea = units.reduce((s,u)=>s+(Number(u.area)||0),0);
+  const builtArea = Number(project.built_area)||0;
+  const areaBase = totalArea>0 ? totalArea : builtArea;
+  const areaSrc = totalArea>0 ? 'units' : (builtArea>0 ? 'built' : 'none');
+  const costPerSqm = areaBase>0 && baseTotal>0 ? baseTotal/areaBase : null;
+  const perUnit = units.map(u=>{
+    const area = Number(u.area)||0;
+    const sale = Number(u.sale)||0;
+    const paid = Number(u.paid)||0;
+    const cost = baseTotal>0 ? (costPerSqm!=null && area>0 ? area*costPerSqm : baseTotal/units.length) : null;
+    const profit = (sale>0 && cost!=null) ? sale-cost : null;
+    const margin = profit!=null && sale>0 ? profit/sale*100 : null;
+    const minPrice = cost!=null ? cost*(1+PROFIT_TARGET_MARGIN/100) : null;
+    return {u, area, sale, paid, cost, profit, margin, minPrice};
+  });
+  const revTotal = perUnit.reduce((s,r)=>s+r.sale,0);
+  const received = units.reduce((s,u)=>s+(Number(u.paid)||0),0);
+  const receivable = perUnit.reduce((s,r)=> r.u.status!=='av' ? s+(r.sale-r.paid) : s, 0);
+  const profitTotal = revTotal - baseTotal;
+  const marginTotal = revTotal>0 ? profitTotal/revTotal*100 : null;
+  // break-even: fewest units covering the whole cost, assuming the highest prices sell first
+  let beUnits = null, beShort = null;
+  if(baseTotal>0 && units.length){
+    const s = perUnit.filter(r=>r.sale>0).map(r=>r.sale).sort((a,b)=>b-a);
+    let acc = 0;
+    for(let i=0;i<s.length;i++){ acc += s[i]; if(acc>=baseTotal){ beUnits = i+1; break; } }
+    if(beUnits===null) beShort = baseTotal - acc;
+  }
+  const noSaleN = units.length ? units.filter(u=>!(Number(u.sale)>0)).length : 0;
+  const noAreaN = units.length ? units.filter(u=>!(Number(u.area)>0)).length : 0;
+  return {project, units, planTotal:plan.finalTotal, baseTotal, matExpected, extrasExpected, contractorCost:plan.contractorCost,
+    totalArea, areaBase, areaSrc, costPerSqm, perUnit, revTotal, received, receivable, profitTotal, marginTotal, beUnits, beShort, noSaleN, noAreaN};
+}
+function renderProfitabilityReport(){
+  const wrap = document.getElementById('profitabilityWrap');
+  if(!wrap) return;
+  const sel = document.getElementById('profProjSelect');
+  const pid = sel ? sel.value : '';
+  if(!pid){ wrap.innerHTML = '<div class="small-muted">اختر مشروعاً لعرض التقرير</div>'; return; }
+  const pc = profitabilityCalc(pid);
+  if(!pc){ wrap.innerHTML = ''; return; }
+  if(!pc.units.length){
+    wrap.innerHTML = '<div class="empty-row" style="text-align:center;padding:20px;">لا توجد وحدات مضافة لهذا المشروع — أضف الوحدات من تبويب «الوحدات السكنية» لعرض الربحية</div>';
+    return;
+  }
+  const warns = [];
+  if(!(pc.baseTotal>0)) warns.push('لا توجد دراسة تكلفة ولا مشتريات مسجلة لهذا المشروع — الأرقام التالية تعتبر التكلفة صفرًا حتى تُسجَّل الدراسة');
+  if(pc.noSaleN) warns.push(`${pc.noSaleN} وحدة بدون سعر بيع — غير محسوبة ضمن الإيراد المتوقع`);
+  if(pc.areaSrc==='none') warns.push('لا توجد مساحات للوحدات ولا مساحة بناء للمشروع — تكلفة الوحدة موزعة بالتساوي على العدد');
+  else if(pc.noAreaN) warns.push(`${pc.noAreaN} وحدة بدون مساحة — تكلفتها موزعة بالتساوي بينما باقي الوحدات حسب المساحة`);
+  if(pc.beShort!=null) warns.push(`إجمالي أسعار البيع المتوقعة لا يغطي التكلفة — العجز ${fmt(pc.beShort)} ر.س`);
+  const areaNote = pc.areaSrc==='units' ? 'من إجمالي مساحات الوحدات' : pc.areaSrc==='built' ? 'من مساحة بناء المشروع' : 'بدون مساحات';
+  const cover = pc.baseTotal>0 ? pc.revTotal/pc.baseTotal*100 : 0;
+  const coverW = Math.max(0, Math.min(100, cover));
+  const sumCost = pc.perUnit.reduce((s,r)=>s+(r.cost||0),0);
+  const sumProfit = pc.perUnit.reduce((s,r)=>s+(r.profit||0),0);
+  wrap.innerHTML = `
+    <div class="small-muted" style="margin:2px 0 10px;">المشروع: ${esc(pc.project.name)} | تاريخ التقرير: ${todayStr()} | الهامش المستهدف: ${PROFIT_TARGET_MARGIN}% | عدد الوحدات: ${pc.units.length}</div>
+    <div class="kpis">
+      <div class="kpi"><div class="n mono">${fmt(pc.planTotal)}</div><div class="l">التكلفة حسب الدراسة (ر.س)</div></div>
+      <div class="kpi" title="المواد بالأسعار الفعلية والمتبقي بسعر الدراسة أو الشراء + المشتريات خارج الدراسة + الإضافات + عقود المقاولين"><div class="n mono">${fmt(pc.baseTotal)}</div><div class="l">التكلفة المتوقعة عند النهاية (ر.س)</div></div>
+      <div class="kpi"><div class="n mono">${fmt(pc.revTotal)}</div><div class="l">الإيراد المتوقع — كل الوحدات (ر.س)</div></div>
+      <div class="kpi"><div class="n mono" style="color:${pc.profitTotal>=0?'var(--green)':'var(--red)'}">${fmt(pc.profitTotal)}</div><div class="l">الربح المتوقع (ر.س)</div></div>
+      <div class="kpi"><div class="n mono" style="color:${(pc.marginTotal||0)>=0?'var(--green)':'var(--red)'}">${pc.marginTotal==null?'—':fmt(pc.marginTotal)+'%'}</div><div class="l">هامش الربح المتوقع</div></div>
+      <div class="kpi"><div class="n mono">${pc.costPerSqm==null?'—':fmt(pc.costPerSqm)}</div><div class="l">تكلفة المتر (ر.س/م²) — ${areaNote}</div></div>
+      <div class="kpi"><div class="n">${pc.beUnits!=null?`${pc.beUnits} / ${pc.units.length}`:(pc.beShort!=null?'لا تغطيها':'—')}</div><div class="l">وحدات مطلوبة للتعادل</div></div>
+      <div class="kpi"><div class="n mono" style="color:var(--green)">${fmt(pc.received)}</div><div class="l">المُستلم من المشترين (ر.س)</div></div>
+      <div class="kpi"><div class="n mono" style="color:${pc.receivable>0?'var(--brick-dark)':'var(--green)'}">${fmt(pc.receivable)}</div><div class="l">المتبقي على المشترين (ر.س)</div></div>
+    </div>
+    ${pc.baseTotal>0?`<div style="margin:10px 0 4px;">
+      <div class="small-muted" style="margin-bottom:4px;">تغطية التكلفة من إجمالي أسعار البيع: ${fmt(pc.revTotal)} من ${fmt(pc.baseTotal)} (${fmt(cover)}%)</div>
+      <div style="background:var(--border-soft);height:10px;border-radius:5px;overflow:hidden;"><div style="width:${coverW}%;height:10px;border-radius:5px;background:${cover>=100?'var(--green)':'var(--amber)'};"></div></div>
+    </div>`:''}
+    ${warns.length?`<div style="margin:10px 0;display:flex;flex-direction:column;gap:4px;">${warns.map(w=>`<div class="small-muted" style="color:var(--brick-dark);">⚠ ${esc(w)}</div>`).join('')}</div>`:''}
+    <div class="table-scroll">
+    <table id="profitabilityTable">
+      <thead><tr><th>الكود</th><th>الدور</th><th>الحالة</th><th>المساحة (م²)</th><th>سعر البيع</th><th>التكلفة المقدرة</th><th>الربح</th><th>الهامش %</th><th>أقل سعر مقبول (بهامش ${PROFIT_TARGET_MARGIN}%)</th></tr></thead>
+      <tbody>
+        ${pc.perUnit.map(r=>{
+          const st = UNIT_STATUS[r.u.status]||UNIT_STATUS.av;
+          return `<tr onclick="openUnitForm('${pc.project.id}','${r.u.id}')" style="cursor:pointer;" title="اضغط لفتح الوحدة">
+            <td class="mono">${esc(r.u.code)}</td>
+            <td>${esc(floorLabel(unitFloorOf(r.u)))}</td>
+            <td><span style="color:${st.c};font-weight:600;">${st.label}</span></td>
+            <td class="mono">${r.area>0?fmt(r.area):'—'}</td>
+            <td class="mono">${r.sale>0?fmt(r.sale):'—'}</td>
+            <td class="mono">${r.cost==null?'—':fmt(r.cost)}</td>
+            <td class="mono" style="color:${r.profit==null?'inherit':(r.profit>=0?'var(--green)':'var(--red)')};font-weight:700;">${r.profit==null?'—':fmt(r.profit)}</td>
+            <td class="mono">${r.margin==null?'—':fmt(r.margin)+'%'}</td>
+            <td class="mono">${r.minPrice==null?'—':fmt(r.minPrice)}</td>
+          </tr>`;
+        }).join('')}
+        <tr style="font-weight:700;border-top:2px solid var(--border);">
+          <td colspan="3">الإجمالي (${pc.perUnit.length} وحدة)</td>
+          <td class="mono">${pc.totalArea>0?fmt(pc.totalArea):'—'}</td>
+          <td class="mono">${fmt(pc.revTotal)}</td>
+          <td class="mono">${pc.baseTotal>0?fmt(sumCost):'—'}</td>
+          <td class="mono" style="color:${sumProfit>=0?'var(--green)':'var(--red)'}">${pc.baseTotal>0?fmt(sumProfit):'—'}</td>
+          <td class="mono">${pc.marginTotal==null?'—':fmt(pc.marginTotal)+'%'}</td>
+          <td></td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="small-muted" style="margin-top:8px;">تكلفة الوحدة = مساحتها × تكلفة المتر (وحدات بدون مساحة توزع بالتساوي) · الهامش = الربح ÷ سعر البيع · أقل سعر مقبول = التكلفة × (1 + الهامش المستهدف) · نقطة التعادل بافتراض بيع أعلى الأسعار أولاً · اضغط على أي صف لفتح الوحدة</div>
   `;
 }
 function exportCsv(tableId, filename){
