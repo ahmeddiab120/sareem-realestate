@@ -1701,7 +1701,7 @@ function computeProjectCost(projectId){
     byCategory[cat] = (byCategory[cat]||0) + total;
     return {...r, material:mat, unitPrice, total};
   });
-  let extra = {transport:0,wastage:0,vat:0,other:0};
+  let extra = {transport:0,wastage:0,vat:0,other:0,land:0};
   let extraTotal = 0;
   if(project && project.extra_costs){
     const ec = project.extra_costs;
@@ -1709,7 +1709,8 @@ function computeProjectCost(projectId){
     extra.wastage = grand * (Number(ec.wastage_pct)||0)/100;
     extra.vat = grand * (Number(ec.vat_pct)||0)/100;
     extra.other = Number(ec.other_amount)||0;
-    extraTotal = extra.transport+extra.wastage+extra.vat+extra.other;
+    extra.land = Number(ec.land_cost)||0;
+    extraTotal = extra.transport+extra.wastage+extra.vat+extra.other+extra.land;
   }
   const contractorCost = DB.project_contractors
     .filter(c=>c.project_id===projectId)
@@ -3425,6 +3426,7 @@ function openProjectForm(id){
         <select id="f_status">${['نشط','مكتمل','متوقف'].map(s=>`<option ${p&&p.status===s?'selected':(!p&&s==='نشط'?'selected':'')}>${s}</option>`).join('')}</select>
       </div>
       <div class="field full"><label>ملاحظات</label><textarea id="f_notes">${esc(p?p.notes:'')}</textarea></div>
+      <div class="field"><label>تكلفة شراء الأرض (ر.س)</label><input id="f_land_cost" type="number" value="${esc(p&&p.extra_costs&&p.extra_costs.land_cost!=null?p.extra_costs.land_cost:'')}" placeholder="تدخل ضمن التكلفة الإجمالية"></div>
       <div class="field full"><label style="color:var(--brick-dark);">تكاليف إضافية اختيارية (منفصلة عن سعر المادة الأساسي)</label></div>
       <div class="field"><label>نقل (%)</label><input id="f_transport_pct" type="number" value="${esc(p&&p.extra_costs?p.extra_costs.transport_pct:0)}"></div>
       <div class="field"><label>هالك (%)</label><input id="f_wastage_pct" type="number" value="${esc(p&&p.extra_costs?p.extra_costs.wastage_pct:0)}"></div>
@@ -3461,6 +3463,7 @@ async function saveProject(id){
       wastage_pct: Number(document.getElementById('f_wastage_pct').value)||0,
       vat_pct: Number(document.getElementById('f_vat_pct').value)||0,
       other_amount: Number(document.getElementById('f_other_amount').value)||0,
+      land_cost: Number(document.getElementById('f_land_cost').value)||0,
     }
   };
   let newId = id;
@@ -3706,6 +3709,7 @@ function renderCosting(){
         <h3 style="margin-top:0;font-size:15px;color:var(--brick-dark);">ملخص التكلفة</h3>
         <table>
           <tr><td>تكلفة المواد الأساسية</td><td class="mono" style="text-align:left;">${fmt(result.materialCost)}</td></tr>
+          <tr><td>تكلفة شراء الأرض</td><td class="mono" style="text-align:left;">${fmt(result.extra.land)}</td></tr>
           <tr><td>نقل</td><td class="mono" style="text-align:left;">${fmt(result.extra.transport)}</td></tr>
           <tr><td>هالك</td><td class="mono" style="text-align:left;">${fmt(result.extra.wastage)}</td></tr>
           <tr><td>ضريبة إضافية</td><td class="mono" style="text-align:left;">${fmt(result.extra.vat)}</td></tr>
@@ -6319,7 +6323,8 @@ function renderProjectCostReport(){
     <div class="divider"></div>
     <table style="max-width:420px;">
       <tr><td>إجمالي تكلفة المواد</td><td class="mono" style="text-align:left;">${fmt(result.materialCost)}</td></tr>
-      <tr><td>إجمالي الإضافات</td><td class="mono" style="text-align:left;">${fmt(result.extraTotal)}</td></tr>
+      <tr><td>تكلفة شراء الأرض</td><td class="mono" style="text-align:left;">${fmt(result.extra.land)}</td></tr>
+      <tr><td>إجمالي الإضافات (نقل/هالك/ضريبة/أخرى)</td><td class="mono" style="text-align:left;">${fmt(result.extraTotal-(result.extra.land||0))}</td></tr>
       <tr><td>إجمالي أعمال المقاولين</td><td class="mono" style="text-align:left;">${fmt(result.contractorCost)}</td></tr>
       <tr style="font-weight:800;"><td>الإجمالي النهائي</td><td class="mono" style="text-align:left;">${fmt(result.finalTotal)}</td></tr>
       <tr><td>تكلفة المتر المربع</td><td class="mono" style="text-align:left;">${result.costPerM2?fmt(result.costPerM2):'-'}</td></tr>
@@ -6383,7 +6388,7 @@ function profitabilityCalc(projectId){
   const matExpected = cp.reduce((a,r)=>a+(Number(r.finalExpected)||0),0)
                     + unpl.reduce((a,r)=>a+(Number(r.purchasedCost)||0),0);
   const ec = project.extra_costs||{};
-  const extrasExpected = matExpected*((Number(ec.transport_pct)||0)+(Number(ec.wastage_pct)||0)+(Number(ec.vat_pct)||0))/100 + (Number(ec.other_amount)||0);
+  const extrasExpected = matExpected*((Number(ec.transport_pct)||0)+(Number(ec.wastage_pct)||0)+(Number(ec.vat_pct)||0))/100 + (Number(ec.other_amount)||0) + (Number(ec.land_cost)||0);
   const expTotal = matExpected + extrasExpected + plan.contractorCost;
   const baseTotal = (cp.length||unpl.length) ? expTotal : plan.finalTotal;
   const totalArea = units.reduce((s,u)=>s+(Number(u.area)||0),0);
@@ -6446,7 +6451,7 @@ function renderProfitabilityReport(){
     <div class="small-muted" style="margin:2px 0 10px;">المشروع: ${esc(pc.project.name)} | تاريخ التقرير: ${todayStr()} | الهامش المستهدف: ${PROFIT_TARGET_MARGIN}% | عدد الوحدات: ${pc.units.length}</div>
     <div class="kpis">
       <div class="kpi"><div class="n mono">${fmt(pc.planTotal)}</div><div class="l">التكلفة حسب الدراسة (ر.س)</div></div>
-      <div class="kpi" title="المواد بالأسعار الفعلية والمتبقي بسعر الدراسة أو الشراء + المشتريات خارج الدراسة + الإضافات + عقود المقاولين"><div class="n mono">${fmt(pc.baseTotal)}</div><div class="l">التكلفة المتوقعة عند النهاية (ر.س)</div></div>
+      <div class="kpi" title="المواد بالأسعار الفعلية والمتبقي بسعر الدراسة أو الشراء + المشتريات خارج الدراسة + الإضافات (بما فيها تكلفة الأرض) + عقود المقاولين"><div class="n mono">${fmt(pc.baseTotal)}</div><div class="l">التكلفة المتوقعة عند النهاية (ر.س)</div></div>
       <div class="kpi"><div class="n mono">${fmt(pc.revTotal)}</div><div class="l">الإيراد المتوقع — كل الوحدات (ر.س)</div></div>
       <div class="kpi"><div class="n mono" style="color:${pc.profitTotal>=0?'var(--green)':'var(--red)'}">${fmt(pc.profitTotal)}</div><div class="l">الربح المتوقع (ر.س)</div></div>
       <div class="kpi"><div class="n mono" style="color:${(pc.marginTotal||0)>=0?'var(--green)':'var(--red)'}">${pc.marginTotal==null?'—':fmt(pc.marginTotal)+'%'}</div><div class="l">هامش الربح المتوقع</div></div>
