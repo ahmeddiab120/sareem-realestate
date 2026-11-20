@@ -423,11 +423,23 @@ body.unit-dragging .units-grid{touch-action:none;}
 .uf-tab{border:0;background:transparent;padding:9px 14px;font-family:inherit;font-size:14px;font-weight:700;color:var(--ink-soft);cursor:pointer;border-radius:10px 10px 0 0;border-bottom:2px solid transparent;transition:color .15s ease,background .15s ease;-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
 .uf-tab.active{color:var(--brick-dark);border-bottom-color:var(--brick);background:rgba(181,80,46,.07);}
 .uf-count{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--brick);color:#fff;font-size:11px;font-weight:800;margin-inline-start:6px;}
-.u-comp-row{display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px dashed var(--border-soft);}
-.u-comp-row:last-child{border-bottom:0;}
-.u-comp-row select.u-comp-name{flex:1;min-width:0;}
-.u-comp-row .u-comp-qty{width:78px;flex:0 0 auto;text-align:center;font-weight:700;}
 .u-comp-empty{padding:16px 0;text-align:center;}
+/* مكونات الوحدة — كروت مدمجة بعدّاد وشرائح إضافة */
+.uc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(135px,1fr));gap:8px;}
+.uc-card{background:var(--card);border:1px solid var(--border-soft);border-radius:14px;padding:10px 12px;display:flex;flex-direction:column;gap:9px;box-shadow:0 1px 3px rgba(43,38,32,.07);}
+.uc-name{font-weight:800;font-size:13px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.uc-qtyrow{display:flex;align-items:center;justify-content:space-between;gap:6px;}
+.uc-step{display:inline-flex;align-items:center;background:var(--paper);border:1px solid var(--border-soft);border-radius:999px;padding:2px;}
+.uc-sbtn{width:30px;height:30px;border:0;border-radius:50%;background:transparent;color:var(--brick-dark);font-size:16px;line-height:1;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-family:inherit;transition:background .15s ease,transform .1s ease;-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
+.uc-sbtn:active{transform:scale(.88);background:rgba(181,80,46,.16);}
+@media (hover:hover){.uc-sbtn:hover{background:rgba(181,80,46,.10);}}
+.uc-n{min-width:28px;text-align:center;font-weight:800;font-size:15px;color:var(--ink);}
+.uc-del{border:0;background:transparent;color:var(--ink-soft);font-size:14px;cursor:pointer;width:28px;height:28px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-family:inherit;transition:background .15s ease,color .15s ease;-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
+.uc-del:active{background:rgba(168,62,62,.15);color:var(--red);}
+.uc-add{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;}
+.uc-chip{display:inline-flex;align-items:center;gap:5px;border:1px dashed var(--border);background:transparent;border-radius:999px;padding:8px 14px;font-family:inherit;font-size:13px;font-weight:700;color:var(--brick-dark);cursor:pointer;transition:background .15s ease,transform .1s ease;-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
+.uc-chip:active{transform:scale(.94);background:rgba(181,80,46,.10);}
+@media (hover:hover){.uc-chip:hover{background:rgba(181,80,46,.08);}}
 @keyframes dupspin{to{transform:rotate(360deg);}}
 .unit-floor .units-grid{padding:12px 14px;}
 .empty-row td{text-align:center;color:var(--ink-soft);padding:28px;font-style:italic;}
@@ -4316,59 +4328,71 @@ function unitFormTab(which){
   if(tm) tm.classList.toggle('active',main);
   if(tc) tc.classList.toggle('active',!main);
 }
-function unitCompRowHTML(name, qty, dis, canEdit){
+function unitCompCardHTML(name, qty, canEdit){
   const nm = UNIT_COMPONENTS.includes(name) ? name : UNIT_COMPONENTS[0];
-  return `<div class="u-comp-row">
-    <select class="u-comp-name" ${dis} data-prev="${esc(nm)}" onchange="unitCompNamePicked(this)" aria-label="المكوّن">${UNIT_COMPONENTS.map(c=>`<option ${c===nm?'selected':''}>${c}</option>`).join('')}</select>
-    <input class="u-comp-qty" type="number" min="1" step="1" value="${qty}" ${dis} aria-label="عدد ${esc(nm)}">
-    ${canEdit?`<button type="button" class="btn sm ghost" onclick="removeUnitComponentRow(this)" title="حذف المكون" aria-label="حذف المكون">${icon('trash')}</button>`:''}
+  const q = Math.max(1, Math.min(99, Math.round(Number(qty)||1)));
+  return `<div class="uc-card" data-name="${esc(nm)}" data-qty="${q}">
+    <div class="uc-name" title="${esc(nm)}">${esc(nm)}</div>
+    <div class="uc-qtyrow">
+      <span class="uc-step">${canEdit?`<button type="button" class="uc-sbtn" onclick="ucQty(this,-1)" aria-label="إنقاص عدد ${esc(nm)}">−</button>`:''}<span class="uc-n">${q}</span>${canEdit?`<button type="button" class="uc-sbtn" onclick="ucQty(this,1)" aria-label="زيادة عدد ${esc(nm)}">+</button>`:''}</span>
+      ${canEdit?`<button type="button" class="uc-del" onclick="ucRemove(this)" title="حذف المكون" aria-label="حذف ${esc(nm)}">✕</button>`:''}
+    </div>
   </div>`;
 }
-function unitCompNamePicked(sel){
-  const rows=[...document.querySelectorAll('#u_compList .u-comp-name')];
-  if(rows.some(s=>s!==sel && s.value===sel.value)){
-    toast('هذا المكوّن مضاف بالفعل في صف آخر — اختر مكوّناً مختلفاً');
-    sel.value = sel.dataset.prev || UNIT_COMPONENTS[0];
-    return;
-  }
-  sel.dataset.prev = sel.value;
+function renderUnitCompChooser(){
+  const box=document.getElementById('u_compChooser');
+  if(!box) return;
+  const used=[...document.querySelectorAll('#u_compList .uc-card')].map(c=>c.dataset.name);
+  const left=UNIT_COMPONENTS.filter(c=>!used.includes(c));
+  box.innerHTML = left.length
+    ? left.map(c=>`<button type="button" class="uc-chip" onclick="addUnitComponent('${c}')">${icon('plus')} ${c}</button>`).join('')
+    : '<div class="small-muted" style="padding:4px 2px;">كل المكونات مضافة</div>';
 }
-function addUnitComponentRow(){
+function addUnitComponent(name){
+  if(!UNIT_COMPONENTS.includes(name)) return;
   const list=document.getElementById('u_compList');
   if(!list) return;
-  const used=[...list.querySelectorAll('.u-comp-name')].map(s=>s.value);
-  const next=UNIT_COMPONENTS.find(c=>!used.includes(c));
-  if(!next){ toast('كل المكونات مضافة بالفعل'); return; }
+  if([...list.querySelectorAll('.uc-card')].some(c=>c.dataset.name===name)){ toast('هذا المكوّن مضاف بالفعل'); return; }
   const empty=list.querySelector('.u-comp-empty');
   if(empty) empty.remove();
-  list.insertAdjacentHTML('beforeend', unitCompRowHTML(next,1,'',true));
+  list.insertAdjacentHTML('beforeend', unitCompCardHTML(name,1,true));
+  renderUnitCompChooser();
   unitCompCountUpdate();
   _modalDirty = true;
 }
-function removeUnitComponentRow(btn){
-  const row=btn.closest('.u-comp-row');
-  if(row) row.remove();
+function ucQty(btn,d){
+  const card=btn.closest('.uc-card');
+  if(!card) return;
+  const q=Math.max(1,Math.min(99,(Number(card.dataset.qty)||1)+d));
+  card.dataset.qty=q;
+  const n=card.querySelector('.uc-n');
+  if(n) n.textContent=q;
+  _modalDirty = true;
+}
+function ucRemove(btn){
+  const card=btn.closest('.uc-card');
+  if(card) card.remove();
   const list=document.getElementById('u_compList');
-  if(list && !list.querySelectorAll('.u-comp-row').length) list.innerHTML='<div class="small-muted u-comp-empty">لا توجد مكونات مضافة</div>';
+  if(list && !list.querySelectorAll('.uc-card').length) list.innerHTML='<div class="small-muted u-comp-empty">لا توجد مكونات مضافة — اختر من الرقائق بالأسفل</div>';
+  renderUnitCompChooser();
   unitCompCountUpdate();
   _modalDirty = true;
 }
 function unitCompCountUpdate(){
   const list=document.getElementById('u_compList');
-  const n=list ? list.querySelectorAll('.u-comp-row').length : 0;
+  const n=list ? list.querySelectorAll('.uc-card').length : 0;
   const el=document.getElementById('ufCompCount');
   if(el) el.textContent=n;
 }
 function collectUnitComponents(){
-  const rows=[...document.querySelectorAll('#u_compList .u-comp-row')];
+  const cards=[...document.querySelectorAll('#u_compList .uc-card')];
   const out=[], seen={};
-  for(const r of rows){
-    const sel=r.querySelector('.u-comp-name'), qtyEl=r.querySelector('.u-comp-qty');
-    const name=sel?sel.value:'';
+  for(const cd of cards){
+    const name=String(cd.dataset.name||'');
     if(!name) continue;
-    const qty=Math.round(Number(qtyEl&&qtyEl.value)||0);
-    if(seen[name]){ toast(`المكوّن «${name}» مكرر — احذف الصف المكرر أو ادمج العددين`); return null; }
-    if(!(qty>0)){ toast(`عدد «${name}» يجب أن يكون رقماً صحيحاً أكبر من صفر`); return null; }
+    const qty=Math.round(Number(cd.dataset.qty)||0);
+    if(seen[name]){ toast(`المكوّن «${name}» مكرر — احذف الكرت المكرر`); return null; }
+    if(!(qty>0)){ toast(`عدد «${name}» يجب أن يكون أكبر من صفر`); return null; }
     seen[name]=1;
     out.push({name, qty});
   }
@@ -4381,8 +4405,8 @@ function openUnitForm(projectId, unitId){
   const proj = DB.projects.find(p=>p.id===projectId);
   let diffTxt = '';
   if(u){ const d = (Number(u.sale)||0) - (Number(u.price)||0); diffTxt = d===0 ? 'بدون تغيير' : (d<0 ? `خصم ${fmt(-d)} ر.س` : `زيادة ${fmt(d)} ر.س`); }
-  const compRowsHtml = ((u && Array.isArray(u.components)) ? u.components : [])
-    .map(c=>unitCompRowHTML(c&&c.name, Number(c&&c.qty)||1, dis, canEdit)).join('');
+  const compCardsHtml = ((u && Array.isArray(u.components)) ? u.components : [])
+    .map(c=>unitCompCardHTML(c&&c.name, Number(c&&c.qty)||1, canEdit)).join('');
   openModal(`
     <h3>${u ? 'الوحدة ' + esc(u.code) : 'إضافة وحدة'}</h3>
     ${u ? `<div class="modal-sub">المشروع: ${esc(proj?proj.name:'')} · الحالة: ${esc((UNIT_STATUS[u.status]||UNIT_STATUS.av).label)} · الفرق عن السعر الأصلي: ${diffTxt}</div>` : `<div class="modal-sub">المشروع: ${esc(proj?proj.name:'')}</div>`}
@@ -4415,10 +4439,10 @@ function openUnitForm(projectId, unitId){
     </div>
     </div>
     <div id="ufPaneComp" hidden>
-      ${canEdit?`<div style="margin-bottom:6px;"><button type="button" class="btn sm" onclick="addUnitComponentRow()">${icon('plus')} إضافة مكون</button></div>`:''}
-      <div id="u_compList">
-        ${compRowsHtml || '<div class="small-muted u-comp-empty">لا توجد مكونات مضافة</div>'}
+      <div class="uc-grid" id="u_compList">
+        ${compCardsHtml || '<div class="small-muted u-comp-empty">لا توجد مكونات مضافة — اختر من الرقائق بالأسفل</div>'}
       </div>
+      ${canEdit?`<div class="uc-add" id="u_compChooser"></div>`:''}
     </div>
     <div class="modal-actions">
       ${canEdit?`<button class="btn" onclick="saveUnitRow('${projectId}','${u?u.id:''}')">${u?'حفظ التعديلات':'إضافة الوحدة'}</button>`:''}
@@ -4428,6 +4452,7 @@ function openUnitForm(projectId, unitId){
   `, true);
   unitRemainderPreview();
   unitCompCountUpdate();
+  renderUnitCompChooser();
 }
 async function saveUnitRow(projectId, unitId){
   if(denyIf('edit_projects')) return;
