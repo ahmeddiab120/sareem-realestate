@@ -418,6 +418,16 @@ body.unit-dragging .units-grid{touch-action:none;}
 .mp-input{width:46px;min-width:46px;border:0;outline:0;background:transparent;text-align:center;font-weight:800;font-size:16px;color:var(--ink);font-family:inherit;padding:0;-moz-appearance:textfield;appearance:textfield;}
 .mp-input::-webkit-outer-spin-button,.mp-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
 .mp-pct{font-size:13px;font-weight:700;color:var(--ink-soft);margin-inline-end:4px;}
+/* تابّات فورم الوحدة + صفوف مكونات الوحدة */
+.uf-tabs{display:flex;gap:4px;margin:10px 0 14px;border-bottom:1px solid var(--border-soft);}
+.uf-tab{border:0;background:transparent;padding:9px 14px;font-family:inherit;font-size:14px;font-weight:700;color:var(--ink-soft);cursor:pointer;border-radius:10px 10px 0 0;border-bottom:2px solid transparent;transition:color .15s ease,background .15s ease;-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
+.uf-tab.active{color:var(--brick-dark);border-bottom-color:var(--brick);background:rgba(181,80,46,.07);}
+.uf-count{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--brick);color:#fff;font-size:11px;font-weight:800;margin-inline-start:6px;}
+.u-comp-row{display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px dashed var(--border-soft);}
+.u-comp-row:last-child{border-bottom:0;}
+.u-comp-row select.u-comp-name{flex:1;min-width:0;}
+.u-comp-row .u-comp-qty{width:78px;flex:0 0 auto;text-align:center;font-weight:700;}
+.u-comp-empty{padding:16px 0;text-align:center;}
 @keyframes dupspin{to{transform:rotate(360deg);}}
 .unit-floor .units-grid{padding:12px 14px;}
 .empty-row td{text-align:center;color:var(--ink-soft);padding:28px;font-style:italic;}
@@ -1457,6 +1467,7 @@ const ICONS = {
   save:    '<path d="M5 3.5h11L20.5 8v12.5H5z"/><path d="M8.5 3.5v6h6v-6"/><path d="M8.5 14h7v6.5h-7z"/>',
   restore: '<path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3.5 4.2v4.6h4.6"/>',
   up:      '<path d="M3.5 16.5l5.5-5.5 3.5 3.5 7.5-7.5"/><path d="M15 7h5.5v5.5"/>',
+  plus:    '<path d="M12 5v14M5 12h14"/>',
   down:    '<path d="M3.5 7.5l5.5 5.5 3.5-3.5 7.5 7.5"/><path d="M15 17h5.5v-5.5"/>',
   clock:   '<circle cx="12" cy="12" r="8.6"/><path d="M12 7.2V12l-3.2 2.1"/>',
   warning: '<path d="M12 3.6L21.4 20H2.6z"/><path d="M12 9.4v4.6"/><path d="M12 17.2h.01"/>',
@@ -4295,6 +4306,74 @@ function unitRemainderPreview(){
   el.textContent = parts.join('   ·   ');
   el.style.color = rest<0 ? 'var(--brick-dark)' : 'var(--ink-soft)';
 }
+const UNIT_COMPONENTS = ['غرفة نوم','صالة','بلكونة','حمام','مطبخ','غرفة غسيل','غرفة خادمة'];
+function unitFormTab(which){
+  const main = which!=='comp';
+  const pm=document.getElementById('ufPaneMain'), pc=document.getElementById('ufPaneComp');
+  if(pm) pm.hidden=!main;
+  if(pc) pc.hidden=main;
+  const tm=document.getElementById('ufTabMain'), tc=document.getElementById('ufTabComp');
+  if(tm) tm.classList.toggle('active',main);
+  if(tc) tc.classList.toggle('active',!main);
+}
+function unitCompRowHTML(name, qty, dis, canEdit){
+  const nm = UNIT_COMPONENTS.includes(name) ? name : UNIT_COMPONENTS[0];
+  return `<div class="u-comp-row">
+    <select class="u-comp-name" ${dis} data-prev="${esc(nm)}" onchange="unitCompNamePicked(this)" aria-label="المكوّن">${UNIT_COMPONENTS.map(c=>`<option ${c===nm?'selected':''}>${c}</option>`).join('')}</select>
+    <input class="u-comp-qty" type="number" min="1" step="1" value="${qty}" ${dis} aria-label="عدد ${esc(nm)}">
+    ${canEdit?`<button type="button" class="btn sm ghost" onclick="removeUnitComponentRow(this)" title="حذف المكون" aria-label="حذف المكون">${icon('trash')}</button>`:''}
+  </div>`;
+}
+function unitCompNamePicked(sel){
+  const rows=[...document.querySelectorAll('#u_compList .u-comp-name')];
+  if(rows.some(s=>s!==sel && s.value===sel.value)){
+    toast('هذا المكوّن مضاف بالفعل في صف آخر — اختر مكوّناً مختلفاً');
+    sel.value = sel.dataset.prev || UNIT_COMPONENTS[0];
+    return;
+  }
+  sel.dataset.prev = sel.value;
+}
+function addUnitComponentRow(){
+  const list=document.getElementById('u_compList');
+  if(!list) return;
+  const used=[...list.querySelectorAll('.u-comp-name')].map(s=>s.value);
+  const next=UNIT_COMPONENTS.find(c=>!used.includes(c));
+  if(!next){ toast('كل المكونات مضافة بالفعل'); return; }
+  const empty=list.querySelector('.u-comp-empty');
+  if(empty) empty.remove();
+  list.insertAdjacentHTML('beforeend', unitCompRowHTML(next,1,'',true));
+  unitCompCountUpdate();
+  _modalDirty = true;
+}
+function removeUnitComponentRow(btn){
+  const row=btn.closest('.u-comp-row');
+  if(row) row.remove();
+  const list=document.getElementById('u_compList');
+  if(list && !list.querySelectorAll('.u-comp-row').length) list.innerHTML='<div class="small-muted u-comp-empty">لا توجد مكونات مضافة</div>';
+  unitCompCountUpdate();
+  _modalDirty = true;
+}
+function unitCompCountUpdate(){
+  const list=document.getElementById('u_compList');
+  const n=list ? list.querySelectorAll('.u-comp-row').length : 0;
+  const el=document.getElementById('ufCompCount');
+  if(el) el.textContent=n;
+}
+function collectUnitComponents(){
+  const rows=[...document.querySelectorAll('#u_compList .u-comp-row')];
+  const out=[], seen={};
+  for(const r of rows){
+    const sel=r.querySelector('.u-comp-name'), qtyEl=r.querySelector('.u-comp-qty');
+    const name=sel?sel.value:'';
+    if(!name) continue;
+    const qty=Math.round(Number(qtyEl&&qtyEl.value)||0);
+    if(seen[name]){ toast(`المكوّن «${name}» مكرر — احذف الصف المكرر أو ادمج العددين`); return null; }
+    if(!(qty>0)){ toast(`عدد «${name}» يجب أن يكون رقماً صحيحاً أكبر من صفر`); return null; }
+    seen[name]=1;
+    out.push({name, qty});
+  }
+  return out;
+}
 function openUnitForm(projectId, unitId){
   const u = unitId ? DB.units.find(x=>x.id===unitId && x.project_id===projectId) : null;
   const canEdit = can('edit_projects');
@@ -4302,9 +4381,16 @@ function openUnitForm(projectId, unitId){
   const proj = DB.projects.find(p=>p.id===projectId);
   let diffTxt = '';
   if(u){ const d = (Number(u.sale)||0) - (Number(u.price)||0); diffTxt = d===0 ? 'بدون تغيير' : (d<0 ? `خصم ${fmt(-d)} ر.س` : `زيادة ${fmt(d)} ر.س`); }
+  const compRowsHtml = ((u && Array.isArray(u.components)) ? u.components : [])
+    .map(c=>unitCompRowHTML(c&&c.name, Number(c&&c.qty)||1, dis, canEdit)).join('');
   openModal(`
     <h3>${u ? 'الوحدة ' + esc(u.code) : 'إضافة وحدة'}</h3>
     ${u ? `<div class="modal-sub">المشروع: ${esc(proj?proj.name:'')} · الحالة: ${esc((UNIT_STATUS[u.status]||UNIT_STATUS.av).label)} · الفرق عن السعر الأصلي: ${diffTxt}</div>` : `<div class="modal-sub">المشروع: ${esc(proj?proj.name:'')}</div>`}
+    <div class="uf-tabs">
+      <button type="button" class="uf-tab active" id="ufTabMain" onclick="unitFormTab('main')">بيانات الوحدة</button>
+      <button type="button" class="uf-tab" id="ufTabComp" onclick="unitFormTab('comp')">مكونات الوحدة<span class="uf-count" id="ufCompCount">0</span></button>
+    </div>
+    <div id="ufPaneMain">
     <div class="form-grid">
       <div class="field"><label>كود الوحدة*</label><input id="u_code" value="${esc(u?u.code:'')}" ${dis} placeholder="مثل -1B أو 1R" oninput="autoFillFloor()"></div>
       <div class="field"><label>الدور</label><select id="u_floor" ${dis} ${u?"data-touched='1'":""} onchange="this.dataset.touched='1'">${floorOptions(u&&u.floor!=null?u.floor:'')}</select></div>
@@ -4327,6 +4413,13 @@ function openUnitForm(projectId, unitId){
       <div class="field"><label>رقم حساب الكهرباء</label><input id="u_elec_account" value="${esc(u?u.elec_account||'':'')}" ${dis} placeholder="اختياري"></div>
       <div class="field full"><div class="modal-sub" id="u_remainder" style="margin:0;"></div></div>
     </div>
+    </div>
+    <div id="ufPaneComp" hidden>
+      ${canEdit?`<div style="margin-bottom:6px;"><button type="button" class="btn sm" onclick="addUnitComponentRow()">${icon('plus')} إضافة مكون</button></div>`:''}
+      <div id="u_compList">
+        ${compRowsHtml || '<div class="small-muted u-comp-empty">لا توجد مكونات مضافة</div>'}
+      </div>
+    </div>
     <div class="modal-actions">
       ${canEdit?`<button class="btn" onclick="saveUnitRow('${projectId}','${u?u.id:''}')">${u?'حفظ التعديلات':'إضافة الوحدة'}</button>`:''}
       ${canEdit && u?`<button class="btn danger" onclick="deleteUnitRow('${projectId}','${u.id}')">${icon('trash')} حذف</button>`:''}
@@ -4334,19 +4427,21 @@ function openUnitForm(projectId, unitId){
     </div>
   `, true);
   unitRemainderPreview();
+  unitCompCountUpdate();
 }
 async function saveUnitRow(projectId, unitId){
   if(denyIf('edit_projects')) return;
+  const fail = (m)=>{ unitFormTab('main'); toast(m); };
   const code = document.getElementById('u_code').value.trim();
-  if(!code){ toast('أدخل كود الوحدة'); return; }
+  if(!code){ fail('أدخل كود الوحدة'); return; }
   const area = Number(document.getElementById('u_area').value)||0;
   const rooms = Number(document.getElementById('u_rooms').value)||0;
   const price = Number(document.getElementById('u_price').value)||0;
   const sale = Number(document.getElementById('u_sale').value)||0;
   const paid = Number(document.getElementById('u_paid').value)||0;
-  if(!(area>0)){ toast('المساحة يجب أن تكون أكبر من صفر'); return; }
-  if(!Number.isInteger(rooms) || rooms<0){ toast('عدد الغرف يجب أن يكون رقماً صحيحاً موجباً'); return; }
-  if(price<0 || sale<0 || paid<0){ toast('الأسعار يجب ألا تكون سالبة'); return; }
+  if(!(area>0)){ fail('المساحة يجب أن تكون أكبر من صفر'); return; }
+  if(!Number.isInteger(rooms) || rooms<0){ fail('عدد الغرف يجب أن يكون رقماً صحيحاً موجباً'); return; }
+  if(price<0 || sale<0 || paid<0){ fail('الأسعار يجب ألا تكون سالبة'); return; }
   const status = document.getElementById('u_status').value;
   const delivered = document.getElementById('u_delivered').value === '1';
   const buyer = document.getElementById('u_buyer').value.trim();
@@ -4356,12 +4451,14 @@ async function saveUnitRow(projectId, unitId){
   const elec_account = document.getElementById('u_elec_account').value.trim();
   const floor = document.getElementById('u_floor').value.trim();
   const dup = DB.units.find(x=>x.project_id===projectId && String(x.code).toLowerCase()===code.toLowerCase() && x.id!==unitId);
-  if(dup){ toast('توجد وحدة أخرى بنفس الكود في هذا المشروع'); return; }
+  if(dup){ fail('توجد وحدة أخرى بنفس الكود في هذا المشروع'); return; }
+  const components = collectUnitComponents();
+  if(components===null){ unitFormTab('comp'); return; }
   // a unit keeps the place the user dragged it to, unless it moved to another floor
   const prev = unitId ? DB.units.find(x=>x.id===unitId) : null;
   const floorMoved = !prev || unitFloorOf(prev)!==floor;
   const sort = floorMoved ? nextFloorSort(projectId, floor, unitId) : (Number(prev.sort)||0);
-  const data = { project_id:projectId, code, floor, sort, area, rooms, price, sale, paid, buyer, status, delivered, water_meter, elec_meter, water_account, elec_account };
+  const data = { project_id:projectId, code, floor, sort, area, rooms, price, sale, paid, buyer, status, delivered, water_meter, elec_meter, water_account, elec_account, components };
   if(unitId){
     const idx = DB.units.findIndex(x=>x.id===unitId);
     DB.units[idx] = {...DB.units[idx], ...data};

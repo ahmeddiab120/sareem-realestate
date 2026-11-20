@@ -29,6 +29,7 @@ create table if not exists public.units (
   elec_account  text,                            -- رقم حساب الكهرباء
   status      text not null default 'av' check (status in ('av','res','pend','done')),
   delivered   boolean default false,             -- هل تم التسليم للعميل؟
+  components  jsonb,                             -- مكونات الوحدة: [{"name":"غرفة نوم","qty":3}, …]
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
@@ -45,6 +46,7 @@ alter table public.units add column if not exists water_meter text;
 alter table public.units add column if not exists elec_meter text;
 alter table public.units add column if not exists water_account text;
 alter table public.units add column if not exists elec_account text;
+alter table public.units add column if not exists components jsonb;
 
 -- the status check predates the 'res' (محجوز) value: databases that already created
 -- the table with the old three-value check get the constraint swapped, not rejected
