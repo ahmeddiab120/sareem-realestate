@@ -4313,6 +4313,10 @@ function openUnitForm(projectId, unitId){
       <div class="field"><label>سعر البيع (ر.س)</label><input id="u_sale" type="number" min="0" step="any" value="${esc(u&&u.sale!=null?u.sale:'')}" ${dis} oninput="unitRemainderPreview()"></div>
       <div class="field"><label>المُستلم (ر.س)</label><input id="u_paid" type="number" min="0" step="any" value="${esc(u&&u.paid!=null?u.paid:'')}" ${dis} oninput="unitRemainderPreview()"></div>
       <div class="field full"><label>المشتري</label><input id="u_buyer" value="${esc(u?u.buyer||'':'')}" ${dis} placeholder="لم يُباع بعد"></div>
+      <div class="field"><label>رقم عداد المياه</label><input id="u_water_meter" value="${esc(u?u.water_meter||'':'')}" ${dis} placeholder="اختياري"></div>
+      <div class="field"><label>رقم عداد الكهرباء</label><input id="u_elec_meter" value="${esc(u?u.elec_meter||'':'')}" ${dis} placeholder="اختياري"></div>
+      <div class="field"><label>رقم حساب المياه</label><input id="u_water_account" value="${esc(u?u.water_account||'':'')}" ${dis} placeholder="اختياري"></div>
+      <div class="field"><label>رقم حساب الكهرباء</label><input id="u_elec_account" value="${esc(u?u.elec_account||'':'')}" ${dis} placeholder="اختياري"></div>
       <div class="field full"><div class="modal-sub" id="u_remainder" style="margin:0;"></div></div>
     </div>
     <div class="modal-actions">
@@ -4338,6 +4342,10 @@ async function saveUnitRow(projectId, unitId){
   const status = document.getElementById('u_status').value;
   const delivered = document.getElementById('u_delivered').value === '1';
   const buyer = document.getElementById('u_buyer').value.trim();
+  const water_meter = document.getElementById('u_water_meter').value.trim();
+  const elec_meter = document.getElementById('u_elec_meter').value.trim();
+  const water_account = document.getElementById('u_water_account').value.trim();
+  const elec_account = document.getElementById('u_elec_account').value.trim();
   const floor = document.getElementById('u_floor').value.trim();
   const dup = DB.units.find(x=>x.project_id===projectId && String(x.code).toLowerCase()===code.toLowerCase() && x.id!==unitId);
   if(dup){ toast('توجد وحدة أخرى بنفس الكود في هذا المشروع'); return; }
@@ -4345,7 +4353,7 @@ async function saveUnitRow(projectId, unitId){
   const prev = unitId ? DB.units.find(x=>x.id===unitId) : null;
   const floorMoved = !prev || unitFloorOf(prev)!==floor;
   const sort = floorMoved ? nextFloorSort(projectId, floor, unitId) : (Number(prev.sort)||0);
-  const data = { project_id:projectId, code, floor, sort, area, rooms, price, sale, paid, buyer, status, delivered };
+  const data = { project_id:projectId, code, floor, sort, area, rooms, price, sale, paid, buyer, status, delivered, water_meter, elec_meter, water_account, elec_account };
   if(unitId){
     const idx = DB.units.findIndex(x=>x.id===unitId);
     DB.units[idx] = {...DB.units[idx], ...data};

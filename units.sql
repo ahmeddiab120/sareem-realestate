@@ -23,6 +23,10 @@ create table if not exists public.units (
   sale        numeric(14,2) not null default 0,  -- سعر البيع الفعلي
   paid        numeric(14,2) not null default 0,  -- المُستلم من المشتري
   buyer       text,
+  water_meter   text,                            -- رقم عداد المياه
+  elec_meter    text,                            -- رقم عداد الكهرباء
+  water_account text,                            -- رقم حساب المياه
+  elec_account  text,                            -- رقم حساب الكهرباء
   status      text not null default 'av' check (status in ('av','res','pend','done')),
   delivered   boolean default false,             -- هل تم التسليم للعميل؟
   created_at  timestamptz not null default now(),
@@ -37,6 +41,10 @@ alter table public.units add column if not exists buyer text;
 alter table public.units add column if not exists floor text;
 alter table public.units add column if not exists sort integer;
 alter table public.units add column if not exists delivered boolean default false;
+alter table public.units add column if not exists water_meter text;
+alter table public.units add column if not exists elec_meter text;
+alter table public.units add column if not exists water_account text;
+alter table public.units add column if not exists elec_account text;
 
 -- the status check predates the 'res' (محجوز) value: databases that already created
 -- the table with the old three-value check get the constraint swapped, not rejected
