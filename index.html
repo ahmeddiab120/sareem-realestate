@@ -596,6 +596,8 @@ body.unit-dragging .units-grid{touch-action:none;}
   z-index:100;align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto;
 }
 .modal-overlay.active{display:flex;}
+.conflict-list{margin:10px 0 4px;padding-inline-start:22px;list-style:disc;font-size:14px;line-height:1.9;max-height:170px;overflow:auto;}
+.conflict-list li{margin-bottom:2px;}
 .modal{
   background: rgba(251,247,238,0.86);
   backdrop-filter: blur(40px) saturate(1.35);
@@ -1290,7 +1292,7 @@ if (!window.storage) {
         return { value: JSON.stringify(data) };
       } catch (e) { return null; }
     },
-    async set(key, val) {
+    async set(key, val, opts) {
       try {
         if (key === 'active_project_id') {
           localStorage.setItem("mcdb:" + key, val);
@@ -1331,25 +1333,63 @@ if (!window.storage) {
         // send only what actually changed: rewriting the whole table meant a save
         // from a stale page deleted every row someone else had added meanwhile
         const snap = ROW_SNAPSHOT[table];
+        const force = !!(opts && opts.force);
         if (Array.isArray(snap)) {
           const before = new Map();
+          const snapUpd = new Map();
           for (const r of snap) {
-            if (r && r.id !== undefined && r.id !== null) before.set(String(r.id), rowFingerprint(r));
+            if (r && r.id !== undefined && r.id !== null) {
+              before.set(String(r.id), rowFingerprint(r));
+              if (r.updated_at) snapUpd.set(String(r.id), String(r.updated_at));
+            }
           }
           const changed = rows.filter(r => before.get(String(r.id)) !== rowFingerprint(r));
           const kept = new Set(rows.map(r => String(r.id)));
           const removed = [...before.keys()].filter(id => !kept.has(id));
+          // optimistic lock: rows someone else edited since this page loaded must not
+          // be overwritten silently — surface them and let the user decide (saveKey)
+          if (!force && changed.length > 0) {
+            const ids = changed
+              .map(r => (r && r.id !== undefined && r.id !== null) ? String(r.id) : null)
+              .filter(id => id && snapUpd.has(id));
+            if (ids.length > 0) {
+              let fresh = [];
+              // fail-open: a broken pre-check must never block an actual save
+              try { fresh = (await supabaseFetch(`${table}?select=*&id=in.(${ids.join(',')})`)) || []; }
+              catch (err) { console.warn('conflict pre-check skipped for ' + table, err); }
+              const conflicts = fresh.filter(fr => fr && fr.id != null && snapUpd.has(String(fr.id)) && String(fr.updated_at || '') !== snapUpd.get(String(fr.id)));
+              if (conflicts.length > 0) {
+                const cerr = new Error('conflict');
+                cerr.conflict = { table, rows: conflicts };
+                throw cerr;
+              }
+            }
+          }
+          let saved = null;
           if (changed.length > 0) {
-            await supabaseFetch(table, { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates' }, body: JSON.stringify(changed) });
+            saved = await supabaseFetch(table, { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=representation' }, body: JSON.stringify(changed) });
           }
           for (let i = 0; i < removed.length; i += 100) {
             await supabaseFetch(`${table}?id=in.(${removed.slice(i, i + 100).join(',')})`, { method: 'DELETE' });
           }
-        } else if (rows.length > 0) {
-          // nothing trusted to diff against (the load failed): write, never delete
-          await supabaseFetch(table, { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates' }, body: JSON.stringify(rows) });
+          // keep the snapshot truthful: server rows (with fresh updated_at) replace the
+          // stale copies, so a second save this session can still detect conflicts
+          const allIds = rows.every(r => r && r.id !== undefined && r.id !== null);
+          if (allIds && Array.isArray(saved)) {
+            const byId = new Map(snap.filter(r => r && r.id != null).map(r => [String(r.id), r]));
+            for (const r of saved) if (r && r.id != null) byId.set(String(r.id), r);
+            for (const id of removed) byId.delete(id);
+            ROW_SNAPSHOT[table] = [...byId.values()];
+          } else {
+            ROW_SNAPSHOT[table] = rows;
+          }
+        } else {
+          if (rows.length > 0) {
+            // nothing trusted to diff against (the load failed): write, never delete
+            await supabaseFetch(table, { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates' }, body: JSON.stringify(rows) });
+          }
+          ROW_SNAPSHOT[table] = rows;
         }
-        ROW_SNAPSHOT[table] = rows;
       } catch (e) { throw e; }
     }
   };
@@ -1503,15 +1543,34 @@ function toast(msg){
 }
 
 var _saveKeyDepth = 0;
-async function saveKey(key,val){
+async function saveKey(key,val,opts){
   _saveKeyDepth++;
-  try{ await window.storage.set(key, JSON.stringify(val)); }
+  try{ await window.storage.set(key, JSON.stringify(val), opts); }
   catch(e){
-    console.error('storage set failed',key,e);
-    let m = (e && e.message) || '';
-    const mi = /Supabase \d+: (.*)$/s.exec(m);
-    if (mi) { try { const j = JSON.parse(mi[1]); if (j && j.message) m = j.message; } catch (_) {} }
-    toast('تعذر الحفظ: ' + m.slice(0,140));
+    if(e && e.conflict){
+      const choice = await showConflictDialog(e.conflict);
+      if(choice === 'force'){
+        try{
+          await window.storage.set(key, JSON.stringify(val), {force:true});
+          return;
+        }catch(e2){ e = e2; }
+      } else if(choice === 'refresh'){
+        closeModal();
+        await loadAll();
+        renderAll();
+        toast('تم تحديث البيانات من السيرفر — تعديلك لم يُحفظ، أعد التعديل على النسخة الجديدة');
+        const rx = new Error('conflict-refresh'); rx.silent = true; throw rx;
+      } else {
+        const cx = new Error('conflict-cancel'); cx.silent = true; throw cx;
+      }
+    }
+    if(!(e && e.silent)){
+      console.error('storage set failed',key,e);
+      let m = (e && e.message) || '';
+      const mi = /Supabase \d+: (.*)$/s.exec(m);
+      if (mi) { try { const j = JSON.parse(mi[1]); if (j && j.message) m = j.message; } catch (_) {} }
+      toast('تعذر الحفظ: ' + m.slice(0,140));
+    }
     throw e;
   }
   finally{ _saveKeyDepth--; }
@@ -2502,6 +2561,62 @@ function showUnsavedGuard(){
   document.body.appendChild(g);
   document.getElementById('guardStay').onclick = ()=> g.remove();
   document.getElementById('guardDiscard').onclick = ()=>{ g.remove(); closeModal(); };
+}
+
+const CONFLICT_TABLE_LABELS = {materials:'المواد',suppliers:'الموردون',prices:'الأسعار',projects:'المشاريع',project_quantities:'بنود الكميات',purchase_orders:'أوامر الشراء',project_contractors:'المقاولون',units:'الوحدات'};
+let _conflictPrevDone = null;
+function conflictRowLabel(table,row){
+  if(!row) return 'سجل';
+  if(table==='prices' || table==='project_quantities'){
+    const m=DB.materials.find(x=>x.id===row.material_id);
+    const s=DB.suppliers.find(x=>x.id===row.supplier_id);
+    if(m) return m.name + (s ? ` — ${s.name}` : '');
+  }
+  return String(row.code || row.po_number || row.name || row.id || 'سجل');
+}
+function conflictTimeLabel(ts){
+  const d=new Date(ts);
+  if(isNaN(d.getTime())) return '';
+  return d.toLocaleString('ar-EG',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+}
+function showConflictDialog(info){
+  return new Promise(resolve=>{
+    // a second conflict (parallel saves) preempts the first one as "cancel" so no awaiter hangs
+    if(_conflictPrevDone){ const p=_conflictPrevDone; _conflictPrevDone=null; p('cancel'); }
+    const rows=(info && Array.isArray(info.rows)) ? info.rows : [];
+    const tableLabel=CONFLICT_TABLE_LABELS[(info && info.table)] || 'البيانات';
+    const list=rows.slice(0,6).map(r=>{
+      const lbl=esc(conflictRowLabel(info && info.table, r));
+      const t=esc(conflictTimeLabel(r && r.updated_at));
+      return `<li>${lbl}${t?` <span class="small-muted">(آخر تعديل في السيرفر: ${t})</span>`:''}</li>`;
+    }).join('');
+    const more=rows.length>6?`<div class="small-muted" style="margin-top:4px;">و ${rows.length-6} سجلات أخرى</div>`:'';
+    const g=document.createElement('div');
+    g.id='conflictGuard';
+    g.className='modal-overlay active';
+    g.style.zIndex='300';
+    g.innerHTML=`
+      <div class="modal" style="max-width:460px;">
+        <h3>تعارض في الحفظ</h3>
+        <div class="modal-sub">السجلات التالية من «${esc(tableLabel)}» عدّلها مستخدم آخر بعد أن حمّلت هذه الصفحة. الحفظ الآن سيستبدل تعديله بتعديلك.</div>
+        <ul class="conflict-list">${list}</ul>
+        ${more}
+        <div class="modal-actions">
+          <button class="btn" id="cfRefresh">تحديث شاشتي من السيرفر</button>
+          <button class="btn danger" id="cfForce">حفظ تعديلي رغم ذلك</button>
+          <button class="btn ghost" id="cfCancel">إلغاء</button>
+        </div>
+      </div>`;
+    const old=document.getElementById('conflictGuard');
+    if(old && old!==g) old.remove();
+    document.body.appendChild(g);
+    let settled=false;
+    const done=(v)=>{ if(settled) return; settled=true; if(_conflictPrevDone===done) _conflictPrevDone=null; g.remove(); resolve(v); };
+    _conflictPrevDone=done;
+    document.getElementById('cfRefresh').onclick=()=>done('refresh');
+    document.getElementById('cfForce').onclick=()=>done('force');
+    document.getElementById('cfCancel').onclick=()=>done('cancel');
+  });
 }
 
 /* ===== SEARCHABLE SELECT (type-to-filter combobox) ===== */
