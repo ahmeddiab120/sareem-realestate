@@ -440,6 +440,9 @@ body.unit-dragging .units-grid{touch-action:none;}
 .uc-chip{display:inline-flex;align-items:center;gap:5px;border:1px dashed var(--border);background:transparent;border-radius:999px;padding:8px 14px;font-family:inherit;font-size:13px;font-weight:700;color:var(--brick-dark);cursor:pointer;transition:background .15s ease,transform .1s ease;-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
 .uc-chip:active{transform:scale(.94);background:rgba(181,80,46,.10);}
 @media (hover:hover){.uc-chip:hover{background:rgba(181,80,46,.08);}}
+.uc-copy{margin-top:14px;padding-top:12px;border-top:1px solid var(--border-soft);}
+.uc-copy label{display:block;font-size:12px;font-weight:700;color:var(--ink-soft);margin-bottom:6px;}
+.uc-copy select{width:100%;max-width:340px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--card);color:var(--ink);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent;}
 @keyframes dupspin{to{transform:rotate(360deg);}}
 .unit-floor .units-grid{padding:12px 14px;}
 .empty-row td{text-align:center;color:var(--ink-soft);padding:28px;font-style:italic;}
@@ -4215,7 +4218,7 @@ function unitTileHTML(project,u){
   const s = UNIT_STATUS[u.status] || UNIT_STATUS.av;
   return `<button type="button" class="unit-tile" data-uid="${esc(u.id)}" style="--c:${s.c}" onclick="openUnitForm('${project.id}','${u.id}')">
     <span class="u-code">${esc(u.code)}</span>
-    <span class="u-area">${fmt(u.area)} م² · ${Number(u.rooms)||0} غرف</span>
+    <span class="u-area">${fmt(u.area)} م²</span>
     ${u.buyer?`<span class="u-buyer" title="${esc(u.buyer)}">${esc(u.buyer)}</span>`:''}
     <span class="u-row"><span class="u-st">${s.label}</span>${u.delivered?'<span class="u-delivered">تم التسليم</span>':''}</span>
   </button>`;
@@ -4318,7 +4321,7 @@ function unitRemainderPreview(){
   el.textContent = parts.join('   ·   ');
   el.style.color = rest<0 ? 'var(--brick-dark)' : 'var(--ink-soft)';
 }
-const UNIT_COMPONENTS = ['غرفة نوم','صالة','بلكونة','حمام','مطبخ','غرفة غسيل','غرفة خادمة'];
+const UNIT_COMPONENTS = ['غرفة نوم','صالة','مجلس','بلكونة','حمام','مطبخ','غرفة غسيل','غرفة خادمة'];
 function unitFormTab(which){
   const main = which!=='comp';
   const pm=document.getElementById('ufPaneMain'), pc=document.getElementById('ufPaneComp');
@@ -4384,6 +4387,21 @@ function unitCompCountUpdate(){
   const el=document.getElementById('ufCompCount');
   if(el) el.textContent=n;
 }
+function copyUnitComponents(srcId){
+  const sel=document.getElementById('u_copyFrom');
+  if(!srcId) return;
+  const src=DB.units.find(x=>x.id===srcId);
+  if(!src || !Array.isArray(src.components) || !src.components.length){ toast('الوحدة المختارة لا تحتوي على مكونات'); if(sel) sel.value=''; return; }
+  const list=document.getElementById('u_compList');
+  if(!list) return;
+  const canEdit=can('edit_projects');
+  list.innerHTML = src.components.map(c=>unitCompCardHTML(c&&c.name, Number(c&&c.qty)||1, canEdit)).join('');
+  renderUnitCompChooser();
+  unitCompCountUpdate();
+  if(sel) sel.value='';
+  _modalDirty = true;
+  toast(`تم نسخ ${src.components.length} مكوّن من الوحدة ${src.code||''}`);
+}
 function collectUnitComponents(){
   const cards=[...document.querySelectorAll('#u_compList .uc-card')];
   const out=[], seen={};
@@ -4407,6 +4425,9 @@ function openUnitForm(projectId, unitId){
   if(u){ const d = (Number(u.sale)||0) - (Number(u.price)||0); diffTxt = d===0 ? 'بدون تغيير' : (d<0 ? `خصم ${fmt(-d)} ر.س` : `زيادة ${fmt(d)} ر.س`); }
   const compCardsHtml = ((u && Array.isArray(u.components)) ? u.components : [])
     .map(c=>unitCompCardHTML(c&&c.name, Number(c&&c.qty)||1, canEdit)).join('');
+  const otherUnits = DB.units
+    .filter(x=>x.project_id===projectId && x.id!==unitId && Array.isArray(x.components) && x.components.length)
+    .sort((a,b)=> String(a.floor||'').localeCompare(String(b.floor||''),'ar') || String(a.code||'').localeCompare(String(b.code||''),'ar'));
   openModal(`
     <h3>${u ? 'الوحدة ' + esc(u.code) : 'إضافة وحدة'}</h3>
     ${u ? `<div class="modal-sub">المشروع: ${esc(proj?proj.name:'')} · الحالة: ${esc((UNIT_STATUS[u.status]||UNIT_STATUS.av).label)} · الفرق عن السعر الأصلي: ${diffTxt}</div>` : `<div class="modal-sub">المشروع: ${esc(proj?proj.name:'')}</div>`}
@@ -4426,7 +4447,6 @@ function openUnitForm(projectId, unitId){
         <option value="1" ${u&&u.delivered?'selected':''}>نعم</option>
       </select></div>
       <div class="field"><label>المساحة (م²)</label><input id="u_area" type="number" min="0" step="any" value="${esc(u&&u.area!=null?u.area:'')}" ${dis} oninput="unitRemainderPreview()"></div>
-      <div class="field"><label>عدد الغرف</label><input id="u_rooms" type="number" min="0" step="1" value="${esc(u&&u.rooms!=null?u.rooms:'')}" ${dis}></div>
       <div class="field"><label>السعر مع العمولة (ر.س)</label><input id="u_price" type="number" min="0" step="any" value="${esc(u&&u.price!=null?u.price:'')}" ${dis}></div>
       <div class="field"><label>سعر البيع (ر.س)</label><input id="u_sale" type="number" min="0" step="any" value="${esc(u&&u.sale!=null?u.sale:'')}" ${dis} oninput="unitRemainderPreview()"></div>
       <div class="field"><label>المُستلم (ر.س)</label><input id="u_paid" type="number" min="0" step="any" value="${esc(u&&u.paid!=null?u.paid:'')}" ${dis} oninput="unitRemainderPreview()"></div>
@@ -4443,6 +4463,7 @@ function openUnitForm(projectId, unitId){
         ${compCardsHtml || '<div class="small-muted u-comp-empty">لا توجد مكونات مضافة — اختر من الرقائق بالأسفل</div>'}
       </div>
       ${canEdit?`<div class="uc-add" id="u_compChooser"></div>`:''}
+      ${canEdit && otherUnits.length?`<div class="uc-copy"><label>نسخ المكونات من وحدة أخرى في المشروع</label><select id="u_copyFrom" onchange="copyUnitComponents(this.value)"><option value="">اختر وحدة…</option>${otherUnits.map(x=>`<option value="${x.id}">${esc(x.code)}${x.floor?` · دور ${esc(x.floor)}`:''} — ${x.components.length} مكوّن</option>`).join('')}</select></div>`:''}
     </div>
     <div class="modal-actions">
       ${canEdit?`<button class="btn" onclick="saveUnitRow('${projectId}','${u?u.id:''}')">${u?'حفظ التعديلات':'إضافة الوحدة'}</button>`:''}
@@ -4460,12 +4481,10 @@ async function saveUnitRow(projectId, unitId){
   const code = document.getElementById('u_code').value.trim();
   if(!code){ fail('أدخل كود الوحدة'); return; }
   const area = Number(document.getElementById('u_area').value)||0;
-  const rooms = Number(document.getElementById('u_rooms').value)||0;
   const price = Number(document.getElementById('u_price').value)||0;
   const sale = Number(document.getElementById('u_sale').value)||0;
   const paid = Number(document.getElementById('u_paid').value)||0;
   if(!(area>0)){ fail('المساحة يجب أن تكون أكبر من صفر'); return; }
-  if(!Number.isInteger(rooms) || rooms<0){ fail('عدد الغرف يجب أن يكون رقماً صحيحاً موجباً'); return; }
   if(price<0 || sale<0 || paid<0){ fail('الأسعار يجب ألا تكون سالبة'); return; }
   const status = document.getElementById('u_status').value;
   const delivered = document.getElementById('u_delivered').value === '1';
@@ -4483,6 +4502,7 @@ async function saveUnitRow(projectId, unitId){
   const prev = unitId ? DB.units.find(x=>x.id===unitId) : null;
   const floorMoved = !prev || unitFloorOf(prev)!==floor;
   const sort = floorMoved ? nextFloorSort(projectId, floor, unitId) : (Number(prev.sort)||0);
+  const rooms = Number((components.find(c=>c.name==='غرفة نوم')||{}).qty)||0;
   const data = { project_id:projectId, code, floor, sort, area, rooms, price, sale, paid, buyer, status, delivered, water_meter, elec_meter, water_account, elec_account, components };
   if(unitId){
     const idx = DB.units.findIndex(x=>x.id===unitId);
